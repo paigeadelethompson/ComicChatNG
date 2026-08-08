@@ -54,6 +54,7 @@ private slots:
     void showRoomMenu(const QPoint &gpos);
     void showMemberMenu(const QPoint &gpos);
     void showRoomProperties();
+    void notImplemented();
 
 private:
     void appendText(const QString &line);
@@ -65,7 +66,6 @@ private:
     void setSelfAvatar(const QString &name);
     QString avatarFor(const QString &nick) const;
     void applyMemberIcon(int row);
-    void startWhisper(const QString &nick);
     QStringList panelForActors(const QString &speaker);
 
     QString m_channel;
@@ -88,4 +88,5 @@ private:
     Emotion m_selfEmotion;
     int m_sayMode = 0; // 0=Say, 1=Think, 2=Whisper, 3=Action
     QString m_whisperTarget;
+    QString m_roomTopic;
 };

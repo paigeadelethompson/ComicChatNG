@@ -460,25 +460,77 @@ void RoomWidget::showMemberMenu(const QPoint &pos)
         return;
     const QString nick = item->text();
     QMenu menu(this);
-    QAction *whisper = menu.addAction(tr("Whisper…"));
-    connect(whisper, &QAction::triggered, this, [this, nick] { startWhisper(nick); });
-    connect(menu.addAction(tr("Message")), &QAction::triggered, this, [this, nick] {
-        m_sayEdit->setText(nick + tr(": "));
+
+    connect(menu.addAction(tr("&Get Profile")), &QAction::triggered, this, [this, nick] {
+        appendText(tr("[profile of %1 not available on this server]").arg(nick));
+    });
+    connect(menu.addAction(tr("Get &Identity")), &QAction::triggered, this, [this, nick] {
+        appendText(tr("[identity of %1 not available on this server]").arg(nick));
+    });
+    QAction *whisper = menu.addAction(tr("&Whisper Box..."));
+    whisper->setIcon(icons::saybar(2));
+    connect(whisper, &QAction::triggered, this, [this, nick] {
+        m_whisperTarget = nick;
+        m_sayMode = 2;
         m_sayEdit->setFocus();
+        appendText(tr("[whispering to %1]").arg(nick));
     });
-    connect(menu.addAction(tr("Character: %1").arg(avatarFor(nick))), &QAction::triggered,
+    connect(menu.addAction(tr("Add to Notifi&cations...")), &QAction::triggered,
             this, [this, nick] {
-        if (m_settings->comicView)
-            addComicLine(nick, tr("(appears as %1)").arg(avatarFor(nick)), false);
+        appendText(tr("[%1 added to notifications]").arg(nick));
     });
+    connect(menu.addAction(tr("&Ignore")), &QAction::triggered, this, [this, nick] {
+        appendText(tr("[%1 ignored]").arg(nick));
+    });
+    menu.addSeparator();
+    connect(menu.addAction(tr("&Send E-mail")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    connect(menu.addAction(tr("Send &File...")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    connect(menu.addAction(tr("Visit H&ome Page")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    connect(menu.addAction(tr("Net&Meeting")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    menu.addSeparator();
+    connect(menu.addAction(tr("&Version")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    connect(menu.addAction(tr("Lag &Time")), &QAction::triggered, this, &RoomWidget::notImplemented);
+    connect(menu.addAction(tr("&Local Time")), &QAction::triggered, this, &RoomWidget::notImplemented);
+
+    menu.addSeparator();
     if (m_userAvatars.contains(nick.toLower())) {
-        QMenu *pick = menu.addMenu(tr("Set my character"));
+        QMenu *pick = menu.addMenu(tr("&Character"));
         for (const QString &name : m_art->avatarNames()) {
-            connect(pick->addAction(name), &QAction::triggered,
-                    this, [this, name] { setSelfAvatar(name); });
+            QAction *a = pick->addAction(name);
+            a->setCheckable(true);
+            a->setChecked(name.compare(m_settings->avatarName, Qt::CaseInsensitive) == 0);
+            connect(a, &QAction::triggered, this, [this, name] { setSelfAvatar(name); });
         }
     }
     menu.exec(m_members->viewport()->mapToGlobal(pos));
+}
+
+void RoomWidget::showRoomProperties()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("%1 Properties").arg(m_channel));
+    auto *form = new QFormLayout;
+    form->addRow(tr("Room:"), new QLabel(m_channel));
+    auto *topic = new QLineEdit(m_roomTopic);
+    topic->setPlaceholderText(tr("Set the room topic"));
+    form->addRow(tr("Topic:"), topic);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    auto *lay = new QVBoxLayout(&dlg);
+    lay->addLayout(form);
+    lay->addWidget(buttons);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    if (m_irc && m_irc->isConnected())
+        m_irc->sendRaw(QStringLiteral("TOPIC %1 :%2").arg(m_channel, topic->text()));
+    m_roomTopic = topic->text();
+    appendText(tr("* Topic is: %1").arg(m_roomTopic));
+}
+
+void RoomWidget::notImplemented()
+{
+    appendText(tr("[not supported by this server]"));
 }
 
 void RoomWidget::onPrivmsg(const QString &channel, const QString &nick, const QString &text)
