@@ -320,7 +320,12 @@ QImage applyComicMask(const QImage &drawing, const QImage &mask)
 
 bool convertMaskedMono(const QImage &src2bpp, QImage *drawing, QImage *mask, QImage *aura)
 {
-    // src pixels use MaskedMonoPalette indices: 00 blank, 01 aura, 10 black, 11 white.
+    // src pixels use MaskedMonoPalette indices: 00 blank, 01 aura, 10 white, 11 black.
+    // The conversion mirrors the original GDI lookup tables:
+    //   value 00 -> blank             (no pixels anywhere)
+    //   value 01 -> aura "nimbus"     (soft halo; mask transparent)
+    //   value 10 -> white fill        (mask opaque, drawing white)
+    //   value 11 -> black ink         (mask opaque, drawing black)
     if (src2bpp.isNull() || !drawing || !mask || !aura)
         return false;
 
@@ -344,32 +349,30 @@ bool convertMaskedMono(const QImage &src2bpp, QImage *drawing, QImage *mask, QIm
             const int r = qRed(c), g = qGreen(c), b = qBlue(c);
             int code = 0;
             if (r == 255 && g == 255 && b == 255)
-                code = 0;
+                code = 0;                     // 00 blank
             else if (r == 0 && g == 0 && b == 0)
-                code = 2;
+                code = 1;                     // 01 aura
             else if (r == 128 && g == 0 && b == 0)
-                code = 1;
+                code = 2;                     // 10 white fill
             else if (r == 0 && g == 0 && b == 128)
-                code = 3;
+                code = 3;                     // 11 black ink
             else if (qGray(c) < 64)
-                code = 2;
+                code = 3;
             else
                 code = 0;
 
             switch (code) {
             case 0: // blank
-                mp[x] = qRgb(255, 255, 255);
                 break;
             case 1: // aura
                 ap[x] = qRgb(0, 0, 0);
-                mp[x] = qRgb(255, 255, 255);
                 break;
-            case 2: // black ink
-                dp[x] = qRgb(0, 0, 0);
+            case 2: // white fill: opaque, drawing white
+                dp[x] = qRgb(255, 255, 255);
                 mp[x] = qRgb(0, 0, 0);
                 break;
-            case 3: // white ink
-                dp[x] = qRgb(255, 255, 255);
+            case 3: // black ink: opaque, drawing black
+                dp[x] = qRgb(0, 0, 0);
                 mp[x] = qRgb(0, 0, 0);
                 break;
             }
@@ -380,6 +383,8 @@ bool convertMaskedMono(const QImage &src2bpp, QImage *drawing, QImage *mask, QIm
 
 bool convertDualMask(const QImage &src2bpp, QImage *mask, QImage *aura)
 {
+    // AIP_DUALMASK: two monochrome masks packed 2bpp. Bit 0 (value&1) = mask,
+    // bit 1 (value&2) = aura. Value 0 = transparent, value 3 = both.
     if (src2bpp.isNull() || !mask || !aura)
         return false;
     const int w = src2bpp.width();
@@ -396,10 +401,24 @@ bool convertDualMask(const QImage &src2bpp, QImage *mask, QImage *aura)
         QRgb *ap = reinterpret_cast<QRgb *>(aura->scanLine(y));
         for (int x = 0; x < w; ++x) {
             const QRgb c = sp[x];
-            // Dual mask palette indices mapped via colors.
-            if (c == kMaskedMonoPalette[1] || qGray(c) < 64)
+            const int r = qRed(c), g = qGreen(c), b = qBlue(c);
+            int v = 0;
+            if (r == 255 && g == 255 && b == 255)
+                v = 0;
+            else if (r == 0 && g == 0 && b == 0)
+                v = 1;
+            else if (r == 128 && g == 0 && b == 0)
+                v = 2;
+            else if (r == 0 && g == 0 && b == 128)
+                v = 3;
+            else if (qGray(c) < 64)
+                v = 3;
+            else
+                v = 0;
+
+            if (v & 1)
                 mp[x] = qRgb(0, 0, 0);
-            if (c == kMaskedMonoPalette[2] || c == kMaskedMonoPalette[3])
+            if (v & 2)
                 ap[x] = qRgb(0, 0, 0);
         }
     }

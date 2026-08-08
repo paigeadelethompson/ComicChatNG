@@ -2,15 +2,19 @@
 
 #include "appsettings.h"
 #include "ircclient.h"
+#include "balloon.h"
+#include "emotions.h"
 
 #include <QHash>
 #include <QWidget>
 
 class ArtManager;
 class PageView;
+class EmotionPicker;
 class QListWidget;
 class QPlainTextEdit;
 class QLineEdit;
+class QScrollArea;
 class QSplitter;
 class QLabel;
 
@@ -27,6 +31,8 @@ public:
 public slots:
     void onPrivmsg(const QString &channel, const QString &nick, const QString &text);
     void onAction(const QString &channel, const QString &nick, const QString &text);
+    void onThink(const QString &channel, const QString &nick, const QString &text);
+    void onWhisper(const QString &channel, const QString &nick, const QString &text);
     void onUserJoined(const QString &channel, const QString &nick);
     void onUserParted(const QString &channel, const QString &nick, const QString &reason);
     void onUserQuit(const QString &nick, const QString &reason);
@@ -38,13 +44,17 @@ public slots:
 
 private slots:
     void sendSay();
+    void onEmotionChanged(const Emotion &e);
 
 private:
     void appendText(const QString &line);
     void addComicLine(const QString &nick, const QString &text, bool isAction);
+    void addComicBalloon(const QString &nick, const QString &text, BalloonKind kind);
     void ensureMember(const QString &nick);
     void removeMember(const QString &nick);
+    void refreshSelfPreview();
     QString avatarFor(const QString &nick) const;
+    void applyMemberIcon(int row);
 
     QString m_channel;
     ArtManager *m_art = nullptr;
@@ -56,9 +66,11 @@ private:
     QListWidget *m_members = nullptr;
     QLineEdit *m_sayEdit = nullptr;
     QLabel *m_preview = nullptr;
+    EmotionPicker *m_emotionPicker = nullptr;
+    QScrollArea *m_comicScroll = nullptr;
     QSplitter *m_mainSplit = nullptr;
-    QWidget *m_comicPane = nullptr;
 
     QHash<QString, QString> m_userAvatars; // nick lower -> avatar file base
     QString m_roomBackdrop;
+    Emotion m_selfEmotion;
 };

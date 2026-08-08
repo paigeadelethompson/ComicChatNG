@@ -80,13 +80,17 @@ void IrcClient::setNick(const QString &nick)
 
 void IrcClient::announceAppearance(const QString &channel, const QString &avatarName)
 {
-    // Comic Chat convention: CTCP-like / notice style "Appears as"
-    sendPrivmsg(channel, QStringLiteral("\x01""Appears as %1\x01").arg(avatarName));
+    // Comic Chat protocol: "# Appears as <name>"
+    sendPrivmsg(channel, QStringLiteral("# Appears as %1").arg(avatarName));
 }
 
 void IrcClient::announceBackdrop(const QString &channel, const QString &backdropName)
 {
-    sendPrivmsg(channel, QStringLiteral("\x01""BDrop: %1\x01").arg(backdropName));
+    if (backdropName.isEmpty())
+        return;
+    // New clients recognise "# BDrop2: <name>,<url>"; older ones read "# BDrop: <name>".
+    sendPrivmsg(channel, QStringLiteral("# BDrop2: %1,").arg(backdropName));
+    sendPrivmsg(channel, QStringLiteral("# BDrop: %1").arg(backdropName));
 }
 
 void IrcClient::onConnected()
@@ -272,6 +276,33 @@ void IrcClient::handleNumeric(int code, const QString &, const QStringList &args
 
 void IrcClient::handlePrivmsg(const QString &nick, const QString &target, const QString &text)
 {
+    // Comic Chat control messages are plain PRIVMSG text beginning with '#'.
+    if (text.startsWith(QLatin1Char('#'))) {
+        const QString body = text.mid(1);
+        // Prefixes keep the leading space, e.g. " Appears as anna"
+        if (body.startsWith(QLatin1String(" Appears as "), Qt::CaseInsensitive)) {
+            emit appearsAs(nick, body.mid(12).trimmed());
+            return;
+        }
+        if (body.startsWith(QLatin1String(" BDrop: "), Qt::CaseInsensitive)) {
+            emit backdropAnnounce(nick, body.mid(8).trimmed());
+            return;
+        }
+        if (body.startsWith(QLatin1String(" BDrop2: "), Qt::CaseInsensitive)) {
+            const QString rest = body.mid(9).trimmed();
+            const int comma = rest.indexOf(QLatin1Char(','));
+            emit backdropAnnounce(nick, comma >= 0 ? rest.left(comma) : rest);
+            return;
+        }
+        if (body.startsWith(QLatin1String(" HeresInfo: "), Qt::CaseInsensitive)) {
+            emit heresInfo(nick, body.mid(12).trimmed());
+            return;
+        }
+        // Other #-comment control messages (GetInfo, GetCharInfo, …) are not
+        // conversation text — swallow them so they never reach the room.
+        return;
+    }
+
     if (text.startsWith(QChar(0x01)) && text.endsWith(QChar(0x01))) {
         const QString ctcp = text.mid(1, text.size() - 2);
         if (ctcp.startsWith(QLatin1String("ACTION "), Qt::CaseInsensitive)) {

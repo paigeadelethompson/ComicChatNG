@@ -12,7 +12,43 @@ Pose::Pose(const PoseLayerOffsets &layers)
 
 QImage Pose::composited() const
 {
-    return applyComicMask(m_drawing, m_mask);
+    if (m_drawing.isNull())
+        return {};
+
+    QImage src = m_drawing.convertToFormat(QImage::Format_ARGB32);
+    QImage mask = m_mask.isNull()
+        ? QImage()
+        : m_mask.convertToFormat(QImage::Format_ARGB32).scaled(
+              src.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    QImage aura = m_aura.isNull()
+        ? QImage()
+        : m_aura.convertToFormat(QImage::Format_ARGB32).scaled(
+              src.size(), Qt::IgnoreAspectRatio, Qt::FastTransformation);
+
+    const bool haveMask = !mask.isNull();
+    const bool haveAura = !aura.isNull();
+    for (int y = 0; y < src.height(); ++y) {
+        QRgb *dst = reinterpret_cast<QRgb *>(src.scanLine(y));
+        const QRgb *m = haveMask
+            ? reinterpret_cast<const QRgb *>(mask.constScanLine(y)) : nullptr;
+        const QRgb *a = haveAura
+            ? reinterpret_cast<const QRgb *>(aura.constScanLine(y)) : nullptr;
+        for (int x = 0; x < src.width(); ++x) {
+            // Black in the mask = opaque; white/transparent = drop.
+            const bool opaque = haveMask ? maskPixelOpaque(m[x]) : true;
+            if (opaque) {
+                // Keep the drawing color (fill white / ink black / color sprite).
+                if (qAlpha(dst[x]) < 64)
+                    dst[x] = qRgba(qRed(dst[x]), qGreen(dst[x]), qBlue(dst[x]), 255);
+            } else if (haveAura && maskPixelOpaque(a[x])) {
+                // Nimbus halo behind the character.
+                dst[x] = qRgba(130, 130, 140, 110);
+            } else {
+                dst[x] = qRgba(0, 0, 0, 0);
+            }
+        }
+    }
+    return src;
 }
 
 bool Pose::ensureLoaded(AvbStream *stream, const AvbPalette &globalPalette)
@@ -532,9 +568,10 @@ RenderedBody AvatarComplex::renderForEmotion(const Emotion &em)
     if (head.isNull() || body.isNull())
         return out;
 
-    // Align head onto torso using registration points (xCX/yCX).
+    // Align head onto torso using registration points (xCX/yCX). The face
+    // delta moves the head anchor (graveur used by the original complex avatars).
     const QPoint torsoAnchor(torso.xCX, torso.yCX);
-    const QPoint headAnchor(face.xCX, face.yCX);
+    const QPoint headAnchor(face.xCX + face.deltaXCX, face.yCX + face.deltaYCX);
 
     const QPoint headTopLeft = torsoAnchor - headAnchor;
     QRect unionRect = body.rect().united(QRect(headTopLeft, head.size()));

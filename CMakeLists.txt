@@ -22,6 +22,7 @@ set(CCNG_SOURCES
     src/balloon.cpp
     src/panel.cpp
     src/pageview.cpp
+    src/emotionpicker.cpp
     src/ircclient.cpp
     src/appsettings.cpp
     src/connectdialog.cpp
@@ -42,6 +43,7 @@ set(CCNG_HEADERS
     include/balloon.h
     include/panel.h
     include/pageview.h
+    include/emotionpicker.h
     include/ircclient.h
     include/appsettings.h
     include/connectdialog.h

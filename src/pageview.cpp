@@ -39,10 +39,9 @@ QSize PageView::sizeHint() const
 
 void PageView::relayout()
 {
-    updateGeometry();
+    // Size the widget to its content so the scroll area keeps real scroll bars.
+    setFixedSize(sizeHint());
     update();
-    if (parentWidget())
-        parentWidget()->updateGeometry();
 }
 
 void PageView::paintEvent(QPaintEvent *)

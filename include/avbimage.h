@@ -35,6 +35,13 @@ bool loadAvbImage(AvbStream *stream, const AvbImageRef &ref, QImage *out);
 // Apply a 1-bpp or grayscale mask so white=transparent, black=opaque (Comic Chat GDI style).
 QImage applyComicMask(const QImage &drawing, const QImage &mask);
 
+// Compute whether a pixel's luma marks it as "opaque" (black drawing) per Comic Chat masks.
+inline bool maskPixelOpaque(const QRgb &c)
+{
+    // 0 = pure black = keep, anything else (white / transparent) = drop.
+    return qRed(c) < 32 && qGreen(c) < 32 && qBlue(c) < 32;
+}
+
 // Expand AIP_MASKEDMONO (2bpp) into drawing + mask + aura monochrome images.
 bool convertMaskedMono(const QImage &src2bpp, QImage *drawing, QImage *mask, QImage *aura);
 

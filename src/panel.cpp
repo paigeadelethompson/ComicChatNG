@@ -22,23 +22,32 @@ void ComicPanel::layout()
         // Scale body to fit ~55% of panel height.
         const int maxH = int(size.height() * 0.55);
         QImage scaled = ch.body;
-        if (scaled.height() > maxH)
-            scaled = scaled.scaledToHeight(maxH, Qt::SmoothTransformation);
+        if (scaled.height() > maxH) {
+            const qreal f = qreal(maxH) / scaled.height();
+            scaled = scaled.scaled(qRound(scaled.width() * f), maxH,
+                                   Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        }
         if (ch.flip)
             scaled = scaled.mirrored(true, false);
+
+        const qreal fx = ch.body.width() ? qreal(scaled.width()) / ch.body.width() : 0.0;
+        const qreal fy = ch.body.height() ? qreal(scaled.height()) / ch.body.height() : 0.0;
 
         const int x = spacing * (i + 1) - scaled.width() / 2;
         const int y = groundY - scaled.height();
         ch.body = scaled;
         ch.bodyRect = QRect(x, y, scaled.width(), scaled.height());
 
-        // Map face tip into panel space.
-        QPoint tip = ch.faceTip;
-        if (ch.body.width() > 0 && !ch.body.isNull()) {
-            // faceTip was in unscaled coords roughly; clamp into body.
-            tip = QPoint(ch.bodyRect.center().x(), ch.bodyRect.top() + ch.bodyRect.height() / 4);
+        // Map the face tip through the same scale/flip into panel space.
+        if (ch.faceTip.x() >= 0 && ch.faceTip.y() >= 0 && fx > 0 && fy > 0) {
+            int tipX = qRound(ch.faceTip.x() * fx);
+            if (ch.flip)
+                tipX = scaled.width() - tipX;
+            ch.faceTip = QPoint(ch.bodyRect.left() + tipX,
+                                ch.bodyRect.top() + qRound(ch.faceTip.y() * fy));
+        } else {
+            ch.faceTip = QPoint(ch.bodyRect.center().x(), ch.bodyRect.top() + ch.bodyRect.height() / 4);
         }
-        ch.faceTip = tip;
     }
 
     for (Balloon &b : balloons) {
@@ -79,10 +88,6 @@ QImage ComicPanel::render() const
     for (const PanelCharacter &ch : characters) {
         if (!ch.body.isNull())
             p.drawImage(ch.bodyRect.topLeft(), ch.body);
-        // Name label
-        p.setPen(Qt::black);
-        p.drawText(QRect(ch.bodyRect.left(), ch.bodyRect.bottom() - 2, ch.bodyRect.width(), 14),
-                   Qt::AlignHCenter | Qt::AlignTop, ch.nick);
     }
 
     for (const Balloon &b : balloons)

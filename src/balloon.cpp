@@ -3,6 +3,8 @@
 #include <QFontMetrics>
 #include <QPainterPath>
 
+#include <cmath>
+
 void Balloon::layout(const QRect &panelRect, const QPoint &faceTip, int maxWidth)
 {
     tip = faceTip;
@@ -59,17 +61,45 @@ void Balloon::paint(QPainter *p) const
     p->setBrush(fill);
     p->drawPath(path);
 
-    // Tail toward tip
+    // Tail toward tip, attached on the edge facing the speaker. The base sits on
+    // that edge so the tail never crosses the bubble body.
     if (kind != BalloonKind::Action) {
         QPolygon poly;
-        const QPoint base(rect.center().x(), rect.bottom());
-        poly << base + QPoint(-8, 0) << base + QPoint(8, 0) << tip;
+        const qreal dx = tip.x() - rect.center().x();
+        const qreal dy = tip.y() - rect.center().y();
+        QPoint base;
+        bool horizontal = false;
+        if (qAbs(dy) >= qAbs(dx)) {
+            const bool below = dy >= 0;
+            const int bx = qBound(rect.left() + 8, tip.x(), rect.right() - 8);
+            base = QPoint(bx, below ? rect.bottom() : rect.top());
+        } else {
+            horizontal = true;
+            const bool left = dx <= 0;
+            const int by = qBound(rect.top() + 8, tip.y(), rect.bottom() - 8);
+            base = QPoint(left ? rect.left() : rect.right(), by);
+        }
+        const QPoint d1 = horizontal ? QPoint(0, -8) : QPoint(-8, 0);
+        // Stop the tail just short of the head so it points at, but doesn't
+        // cross over, the character.
+        const QPointF dirF = QPointF(tip - base);
+        const qreal len = std::hypot(dirF.x(), dirF.y());
+        QPointF end(tip);
+        if (len > 9.0)
+            end = QPointF(tip) - (dirF / len) * 9.0;
+        poly << base + d1 << base - d1 << end.toPoint();
         p->setPen(Qt::black);
         p->setBrush(fill);
         p->drawPolygon(poly);
         if (kind == BalloonKind::Think) {
-            p->drawEllipse(QRect(tip + QPoint(-4, -10), QSize(6, 6)));
-            p->drawEllipse(QRect(tip + QPoint(-2, -4), QSize(4, 4)));
+            // Trailing dots sit right toward the head.
+            if (len > 0.5) {
+                const QPointF u = dirF / len;
+                const qreal off = qMin(qreal(9), len / 3);
+                p->drawEllipse(QRectF(end + u * (off * 0) + QPointF(-2, -2), QSizeF(5, 5)));
+                p->drawEllipse(QRectF(end + u * (off * 1) + QPointF(-2, -2), QSizeF(4, 4)));
+                p->drawEllipse(QRectF(end + u * (off * 2) + QPointF(-2, -2), QSizeF(3, 3)));
+            }
         }
     }
 

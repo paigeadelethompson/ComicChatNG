@@ -79,17 +79,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&m_irc, &IrcClient::appearsAs, this, &MainWindow::routeAppearsAs);
     connect(&m_irc, &IrcClient::backdropAnnounce, this, &MainWindow::routeBackdrop);
     connect(&m_irc, &IrcClient::serverMessage, this, &MainWindow::routeServerMessage);
-
-    // Local preview room so avatars can be exercised offline
-    auto *local = new RoomWidget(QStringLiteral("#local"), &m_art, &m_settings, &m_irc);
-    m_rooms.insert(QStringLiteral("#local"), local);
-    m_tabs->addTab(local, tr("Local Preview"));
-    local->onServerMessage(tr("Art directory: %1 (%2 characters, %3 backdrops)")
-                               .arg(m_art.artDirectory())
-                               .arg(m_art.avatarNames().size())
-                               .arg(m_art.backdropNames().size()));
-    local->onServerMessage(tr("Use Session → Connect to join an IRC channel. "
-                              "Type here to preview comics offline."));
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
