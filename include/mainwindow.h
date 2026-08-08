@@ -10,6 +10,10 @@
 class QTabWidget;
 class RoomWidget;
 class QLabel;
+class QAction;
+class QToolBar;
+class QMenu;
+class QLineEdit;
 
 class MainWindow : public QMainWindow
 {
@@ -23,9 +27,15 @@ protected:
 private slots:
     void sessionConnect();
     void sessionDisconnect();
-    void openSettings();
+    void enterRoom();
+    void leaveRoom();
+    void createRoom();
+    void showRoomList();
     void toggleComicView(bool on);
+    void toggleTextView(bool on);
+    void openSettings();
     void about();
+    void clearHistory();
 
     void onConnected();
     void onDisconnected();
@@ -46,7 +56,26 @@ private slots:
 private:
     RoomWidget *roomForChannel(const QString &channel, bool create);
     RoomWidget *currentRoom() const;
-    void updateStatus();
+    QMenu *buildFileMenu();
+    QMenu *buildEditMenu();
+    QMenu *buildViewMenu();
+    QMenu *buildFormatMenu();
+    QMenu *buildRoomMenu();
+    QMenu *buildMemberMenu();
+    QMenu *buildFavoritesMenu();
+    QMenu *buildWindowMenu();
+    QMenu *buildHelpMenu();
+    QToolBar *buildMainToolbar();
+    QToolBar *buildTextToolbar();
+    QToolBar *buildUserToolbar();
+    void notImplemented();
+    void notUserList();
+    void addToggleTextAction(QToolBar *bar, const QIcon &icon, const QString &text);
+
+    QAction *m_actComics = nullptr;
+    QAction *m_actText = nullptr;
+    QAction *m_actEnterRoom = nullptr;
+    QAction *m_actLeaveRoom = nullptr;
 
     AppSettings m_settings;
     ArtManager m_art;

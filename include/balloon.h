@@ -19,8 +19,10 @@ struct Balloon
     QString speaker;
     QString text;
     QRect rect;
-    QPoint tip; // arrow tip toward face
+    QRect sprite;   // speaker sprite box in panel coords
+    QPoint faceP;   // speaker's face anchor in panel coords
 
-    void layout(const QRect &panelRect, const QPoint &faceTip, int maxWidth = 180);
+    void layout(const QRect &panelRect, const QRect &spriteRect,
+                const QPoint &facePt, int maxWidth = 180);
     void paint(QPainter *p) const;
 };

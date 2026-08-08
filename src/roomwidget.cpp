@@ -7,11 +7,19 @@
 #include "panel.h"
 #include "rules.h"
 
+#include <QAction>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
-#include <QIcon>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -19,8 +27,12 @@
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTimer>
+#include <QToolButton>
+#include <QButtonGroup>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+
+#include "icons.h"
 
 RoomWidget::RoomWidget(const QString &channel, ArtManager *art, AppSettings *settings,
                        IrcClient *irc, QWidget *parent)
@@ -37,6 +49,9 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art, AppSettings *set
     m_comicScroll->setWidgetResizable(false);
     m_comicScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_comicScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_comicScroll->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_comicScroll, &QScrollArea::customContextMenuRequested,
+            this, &RoomWidget::showRoomMenu);
 
     m_textView = new QPlainTextEdit;
     m_textView->setReadOnly(true);
@@ -45,6 +60,9 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art, AppSettings *set
     m_members = new QListWidget;
     m_members->setMinimumWidth(150);
     m_members->setIconSize(QSize(44, 44));
+    m_members->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_members, &QListWidget::customContextMenuRequested,
+            this, &RoomWidget::showMemberMenu);
 
     m_preview = new QLabel;
     m_preview->setAlignment(Qt::AlignCenter);
@@ -53,6 +71,9 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art, AppSettings *set
 
     m_emotionPicker = new EmotionPicker;
     connect(m_emotionPicker, &EmotionPicker::emotionChanged, this, &RoomWidget::onEmotionChanged);
+    connect(this, &RoomWidget::clearHistoryRequested, this, [this] {
+        m_textView->clear();
+    });
 
     auto *right = new QWidget;
     auto *rightLay = new QVBoxLayout(right);
@@ -82,9 +103,42 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art, AppSettings *set
     connect(m_sayEdit, &QLineEdit::returnPressed, this, &RoomWidget::sendSay);
     connect(sendBtn, &QPushButton::clicked, this, &RoomWidget::sendSay);
 
+    // The classic Chat "action" buttons: Say / Think / Whisper / Action,
+    // with the original balloon pictures from res\balloons.bmp.
+    struct ModeButton { int mode; const char *tip; int icon; };
+    const ModeButton modes[] = {
+        { 0, QT_TR_NOOP("Say"), 0 },
+        { 1, QT_TR_NOOP("Think"), 1 },
+        { 2, QT_TR_NOOP("Whisper"), 2 },
+        { 3, QT_TR_NOOP("Action"), 3 },
+    };
+    QButtonGroup *modeGroup = new QButtonGroup(this);
+    modeGroup->setExclusive(true);
+    QToolButton *sayBtn = nullptr;
+    for (const ModeButton &mb : modes) {
+        QToolButton *b = new QToolButton;
+        b->setIcon(icons::saybar(mb.icon));
+        b->setCheckable(true);
+        b->setToolTip(tr(mb.tip));
+        b->setAutoRaise(true);
+        modeGroup->addButton(b, mb.mode);
+        if (mb.mode == 0)
+            sayBtn = b;
+    }
+    connect(modeGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        m_sayMode = id;
+    });
+
     auto *sayRow = new QHBoxLayout;
+    sayRow->setSpacing(2);
+    sayRow->addWidget(modeGroup->button(0));
+    sayRow->addWidget(modeGroup->button(1));
+    sayRow->addWidget(modeGroup->button(2));
+    sayRow->addWidget(modeGroup->button(3));
     sayRow->addWidget(m_sayEdit, 1);
     sayRow->addWidget(sendBtn);
+    if (sayBtn)
+        sayBtn->setChecked(true);
 
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_mainSplit, 1);
@@ -208,9 +262,28 @@ void RoomWidget::sendSay()
             appendText(tr("(offline) /%1").arg(cmd));
         }
     } else {
-        if (!localOnly)
-            m_irc->sendPrivmsg(m_channel, text);
-        onPrivmsg(m_channel, m_settings->nick, text);
+        if (m_sayMode == 3) {
+            if (!localOnly)
+                m_irc->sendAction(m_channel, text);
+            onAction(m_channel, m_settings->nick, text);
+        } else if (m_sayMode == 1) {
+            if (!localOnly)
+                m_irc->sendPrivmsg(m_channel, text);
+            onThink(m_channel, m_settings->nick, text);
+        } else if (m_sayMode == 2) {
+            if (!m_whisperTarget.isEmpty()) {
+                if (!localOnly)
+                    m_irc->sendPrivmsg(m_whisperTarget, text);
+                onWhisper(m_settings->nick, m_whisperTarget, text);
+                appendText(QStringLiteral("[whisper to %1] %2").arg(m_whisperTarget, text));
+            } else {
+                appendText(tr("[whisper] Right-click a member and choose “Whisper…” to pick a target."));
+            }
+        } else {
+            if (!localOnly)
+                m_irc->sendPrivmsg(m_channel, text);
+            onPrivmsg(m_channel, m_settings->nick, text);
+        }
     }
     m_sayEdit->clear();
 }
@@ -224,18 +297,19 @@ void RoomWidget::addComicLine(const QString &nick, const QString &text, bool isA
 void RoomWidget::addComicBalloon(const QString &nick, const QString &text, BalloonKind kind)
 {
     ComicPanel panel;
-    panel.size = QSize(340, 260);
 
     if (Backdrop *bd = m_art->backdrop(m_roomBackdrop))
         panel.backdrop = bd->image();
     else if (Backdrop *bd = m_art->defaultBackdrop())
         panel.backdrop = bd->image();
 
+    // The speaker, plus the previous speaker so the frame reads like a
+    // conversation (two characters at most, no duplicate avatars).
+    const QStringList actors = panelForActors(nick);
+
     PanelCharacter ch;
     ch.nick = nick;
     ch.avatarName = avatarFor(nick);
-    // When the user has actively chosen an expression via the emotion joystick,
-    // their own character uses it instead of the keyword heuristic.
     ch.emotion = (nick.compare(m_settings->nick, Qt::CaseInsensitive) == 0
                       && m_selfEmotion.intensity > 0.01f)
         ? m_selfEmotion
@@ -247,6 +321,21 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
         m_userAvatars.insert(nick.toLower(), av->fileName());
     }
     panel.characters.append(ch);
+
+    for (const QString &other : actors) {
+        if (other.compare(nick, Qt::CaseInsensitive) == 0)
+            continue;
+        PanelCharacter observer;
+        observer.nick = other;
+        observer.avatarName = avatarFor(other);
+        observer.emotion = {0.f, 0.f};
+        if (Avatar *av = m_art->avatarOrRandom(observer.avatarName)) {
+            RenderedBody body = av->renderForEmotion(observer.emotion);
+            observer.body = body.image;
+            observer.faceTip = body.faceTip;
+        }
+        panel.characters.append(observer);
+    }
 
     Balloon balloon;
     balloon.kind = kind;
@@ -277,6 +366,119 @@ void RoomWidget::refreshSelfPreview()
             m_preview->setPixmap(QPixmap::fromImage(img.scaled(96, 120, Qt::KeepAspectRatio,
                                                                Qt::SmoothTransformation)));
     }
+}
+
+QStringList RoomWidget::panelForActors(const QString &speaker)
+{
+    QStringList actors;
+    actors.append(speaker);
+    if (!m_previousSpeaker.isEmpty()
+        && m_previousSpeaker.compare(speaker, Qt::CaseInsensitive) != 0)
+        actors.append(m_previousSpeaker);
+    m_previousSpeaker = speaker;
+    return actors;
+}
+
+void RoomWidget::applySettings()
+{
+    m_roomBackdrop = m_settings->backdropName;
+    m_userAvatars.insert(m_settings->nick.toLower(), m_settings->avatarName);
+    refreshSelfPreview();
+}
+
+void RoomWidget::setSelfAvatar(const QString &name)
+{
+    if (!m_art->avatarOrRandom(name))
+        return;
+    m_settings->avatarName = name;
+    m_settings->save();
+    m_userAvatars.insert(m_settings->nick.toLower(), name);
+    onAppearsAs(m_settings->nick, name);
+}
+
+void RoomWidget::startWhisper(const QString &nick)
+{
+    m_sayEdit->setText(QStringLiteral("/whisper %1 ").arg(nick));
+    m_sayEdit->setFocus();
+}
+
+void RoomWidget::showRoomMenu(const QPoint &gpos)
+{
+    QMenu menu(this);
+
+    QAction *comic = menu.addAction(tr("Comic Stri&p"));
+    comic->setCheckable(true);
+    comic->setChecked(m_settings->comicView);
+    connect(comic, &QAction::toggled, this, &RoomWidget::setComicMode);
+
+    QAction *text = menu.addAction(tr("Plain Te&xt"));
+    text->setCheckable(true);
+    text->setChecked(!m_settings->comicView);
+    connect(text, &QAction::toggled, this, &RoomWidget::setComicMode);
+
+    menu.addSeparator();
+    connect(menu.addAction(tr("&Copy\tCtrl+C")), &QAction::triggered, this, [this] {
+        if (m_textView)
+            m_textView->copy();
+    });
+    connect(menu.addAction(tr("Clear &History")), &QAction::triggered, this, [this] {
+        if (m_textView)
+            m_textView->clear();
+        m_pageView->clear();
+    });
+
+    menu.addSeparator();
+    connect(menu.addAction(tr("&Room Properties...")), &QAction::triggered, this,
+            &RoomWidget::showRoomProperties);
+
+    menu.addSeparator();
+    QMenu *charMenu = menu.addMenu(tr("&Character"));
+    for (const QString &name : m_art->avatarNames()) {
+        QAction *a = charMenu->addAction(name);
+        a->setCheckable(true);
+        a->setChecked(name.compare(m_settings->avatarName, Qt::CaseInsensitive) == 0);
+        connect(a, &QAction::triggered, this, [this, name] { setSelfAvatar(name); });
+    }
+    QMenu *bMenu = menu.addMenu(tr("&Backdrop"));
+    for (const QString &name : m_art->backdropNames()) {
+        QAction *a = bMenu->addAction(name);
+        a->setCheckable(true);
+        a->setChecked(name.compare(m_roomBackdrop, Qt::CaseInsensitive) == 0);
+        connect(a, &QAction::triggered, this, [this, name] {
+            m_roomBackdrop = name;
+            if (m_irc && m_irc->isConnected())
+                m_irc->announceBackdrop(m_channel, name);
+        });
+    }
+    menu.exec(m_comicScroll->mapToGlobal(gpos));
+}
+
+void RoomWidget::showMemberMenu(const QPoint &pos)
+{
+    QListWidgetItem *item = m_members->itemAt(pos);
+    if (!item)
+        return;
+    const QString nick = item->text();
+    QMenu menu(this);
+    QAction *whisper = menu.addAction(tr("Whisper…"));
+    connect(whisper, &QAction::triggered, this, [this, nick] { startWhisper(nick); });
+    connect(menu.addAction(tr("Message")), &QAction::triggered, this, [this, nick] {
+        m_sayEdit->setText(nick + tr(": "));
+        m_sayEdit->setFocus();
+    });
+    connect(menu.addAction(tr("Character: %1").arg(avatarFor(nick))), &QAction::triggered,
+            this, [this, nick] {
+        if (m_settings->comicView)
+            addComicLine(nick, tr("(appears as %1)").arg(avatarFor(nick)), false);
+    });
+    if (m_userAvatars.contains(nick.toLower())) {
+        QMenu *pick = menu.addMenu(tr("Set my character"));
+        for (const QString &name : m_art->avatarNames()) {
+            connect(pick->addAction(name), &QAction::triggered,
+                    this, [this, name] { setSelfAvatar(name); });
+        }
+    }
+    menu.exec(m_members->viewport()->mapToGlobal(pos));
 }
 
 void RoomWidget::onPrivmsg(const QString &channel, const QString &nick, const QString &text)

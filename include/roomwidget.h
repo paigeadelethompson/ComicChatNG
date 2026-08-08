@@ -6,6 +6,7 @@
 #include "emotions.h"
 
 #include <QHash>
+#include <QStringList>
 #include <QWidget>
 
 class ArtManager;
@@ -17,6 +18,7 @@ class QLineEdit;
 class QScrollArea;
 class QSplitter;
 class QLabel;
+class QToolButton;
 
 class RoomWidget : public QWidget
 {
@@ -27,6 +29,10 @@ public:
 
     QString channel() const { return m_channel; }
     void setComicMode(bool on);
+    void applySettings();
+
+signals:
+    void clearHistoryRequested();
 
 public slots:
     void onPrivmsg(const QString &channel, const QString &nick, const QString &text);
@@ -45,6 +51,9 @@ public slots:
 private slots:
     void sendSay();
     void onEmotionChanged(const Emotion &e);
+    void showRoomMenu(const QPoint &gpos);
+    void showMemberMenu(const QPoint &gpos);
+    void showRoomProperties();
 
 private:
     void appendText(const QString &line);
@@ -53,8 +62,11 @@ private:
     void ensureMember(const QString &nick);
     void removeMember(const QString &nick);
     void refreshSelfPreview();
+    void setSelfAvatar(const QString &name);
     QString avatarFor(const QString &nick) const;
     void applyMemberIcon(int row);
+    void startWhisper(const QString &nick);
+    QStringList panelForActors(const QString &speaker);
 
     QString m_channel;
     ArtManager *m_art = nullptr;
@@ -72,5 +84,8 @@ private:
 
     QHash<QString, QString> m_userAvatars; // nick lower -> avatar file base
     QString m_roomBackdrop;
+    QString m_previousSpeaker;
     Emotion m_selfEmotion;
+    int m_sayMode = 0; // 0=Say, 1=Think, 2=Whisper, 3=Action
+    QString m_whisperTarget;
 };

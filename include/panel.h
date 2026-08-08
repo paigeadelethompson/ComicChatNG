@@ -23,6 +23,8 @@ struct ComicPanel {
     QVector<Balloon> balloons;
     QSize size = QSize(320, 240);
 
+    bool isEmpty() const { return characters.isEmpty(); }
+    bool containsSpeaker(const QString &nick) const;
     void layout();
     QImage render() const;
 };

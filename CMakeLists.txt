@@ -29,7 +29,10 @@ set(CCNG_SOURCES
     src/setupdialog.cpp
     src/roomwidget.cpp
     src/mainwindow.cpp
+    src/icons.cpp
 )
+
+set(CCNG_RESOURCES res/icons.qrc)
 
 set(CCNG_HEADERS
     include/avbformat.h
@@ -50,9 +53,10 @@ set(CCNG_HEADERS
     include/setupdialog.h
     include/roomwidget.h
     include/mainwindow.h
+    include/icons.h
 )
 
-add_executable(ComicChatNG ${CCNG_SOURCES} ${CCNG_HEADERS})
+add_executable(ComicChatNG ${CCNG_SOURCES} ${CCNG_HEADERS} ${CCNG_RESOURCES})
 
 target_include_directories(ComicChatNG PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
