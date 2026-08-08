@@ -296,7 +296,17 @@ void RoomWidget::addComicLine(const QString &nick, const QString &text, bool isA
 
 void RoomWidget::addComicBalloon(const QString &nick, const QString &text, BalloonKind kind)
 {
+    constexpr int kMaxBalloonsPerPanel = 5;
+
     ComicPanel panel;
+    if (m_pageView->panelCount() > 0) {
+        const ComicPanel last = m_pageView->lastPanel();
+        if (last.balloons.size() < kMaxBalloonsPerPanel
+            && !last.containsSpeaker(nick)
+            && kind != BalloonKind::Action) {
+            panel = last;
+        }
+    }
 
     if (Backdrop *bd = m_art->backdrop(m_roomBackdrop))
         panel.backdrop = bd->image();
@@ -307,34 +317,23 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
     // conversation (two characters at most, no duplicate avatars).
     const QStringList actors = panelForActors(nick);
 
-    PanelCharacter ch;
-    ch.nick = nick;
-    ch.avatarName = avatarFor(nick);
-    ch.emotion = (nick.compare(m_settings->nick, Qt::CaseInsensitive) == 0
-                      && m_selfEmotion.intensity > 0.01f)
-        ? m_selfEmotion
-        : EmotionRules::analyze(text);
-    if (Avatar *av = m_art->avatarOrRandom(ch.avatarName)) {
-        RenderedBody body = av->renderForEmotion(ch.emotion);
-        ch.body = body.image;
-        ch.faceTip = body.faceTip;
-        m_userAvatars.insert(nick.toLower(), av->fileName());
-    }
-    panel.characters.append(ch);
-
-    for (const QString &other : actors) {
-        if (other.compare(nick, Qt::CaseInsensitive) == 0)
+    for (const QString &actor : actors) {
+        if (panel.containsSpeaker(actor))
             continue;
-        PanelCharacter observer;
-        observer.nick = other;
-        observer.avatarName = avatarFor(other);
-        observer.emotion = {0.f, 0.f};
-        if (Avatar *av = m_art->avatarOrRandom(observer.avatarName)) {
-            RenderedBody body = av->renderForEmotion(observer.emotion);
-            observer.body = body.image;
-            observer.faceTip = body.faceTip;
+        PanelCharacter ch;
+        ch.nick = actor;
+        ch.avatarName = avatarFor(actor);
+        ch.emotion = (actor.compare(m_settings->nick, Qt::CaseInsensitive) == 0
+                          && m_selfEmotion.intensity > 0.01f)
+            ? m_selfEmotion
+            : EmotionRules::analyze(text);
+        if (Avatar *av = m_art->avatarOrRandom(ch.avatarName)) {
+            RenderedBody body = av->renderForEmotion(ch.emotion);
+            ch.body = body.image;
+            ch.faceTip = body.faceTip;
+            m_userAvatars.insert(actor.toLower(), av->fileName());
         }
-        panel.characters.append(observer);
+        panel.characters.append(ch);
     }
 
     Balloon balloon;
@@ -343,7 +342,10 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
     balloon.text = text;
     panel.balloons.append(balloon);
 
-    m_pageView->addPanel(panel);
+    if (panel.isEmpty())
+        m_pageView->addPanel(panel);
+    else
+        m_pageView->replaceLastPanel(panel);
     // Keep the newest panel in view.
     QTimer::singleShot(0, this, [this] {
         QScrollBar *sb = m_comicScroll->verticalScrollBar();
@@ -394,12 +396,6 @@ void RoomWidget::setSelfAvatar(const QString &name)
     m_settings->save();
     m_userAvatars.insert(m_settings->nick.toLower(), name);
     onAppearsAs(m_settings->nick, name);
-}
-
-void RoomWidget::startWhisper(const QString &nick)
-{
-    m_sayEdit->setText(QStringLiteral("/whisper %1 ").arg(nick));
-    m_sayEdit->setFocus();
 }
 
 void RoomWidget::showRoomMenu(const QPoint &gpos)
