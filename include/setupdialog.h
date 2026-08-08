@@ -5,10 +5,15 @@
 #include <QDialog>
 
 class QLineEdit;
-class QComboBox;
+class QListWidget;
 class QCheckBox;
+class QWidget;
+class QTabWidget;
 class ArtManager;
+class QLabel;
 
+// The old client's "Options" dialog: a tab sheet with
+// Settings, Personal Info, Character and Background pages.
 class SetupDialog : public QDialog
 {
     Q_OBJECT
@@ -20,14 +25,32 @@ public slots:
 
 private slots:
     void browseArtDir();
+    void onAvatarRow(int row);
+    void onBackdropRow(int row);
 
 private:
+    QWidget *buildSettingsPage();
+    QWidget *buildPersonalPage();
+    QWidget *buildCharacterPage();
+    QWidget *buildBackgroundPage();
+    void refreshAvatarPreview();
+    void refreshBackdropPreview();
+
     AppSettings *m_settings = nullptr;
     ArtManager *m_art = nullptr;
-    QLineEdit *m_nick = nullptr;
+
     QLineEdit *m_realName = nullptr;
+    QLineEdit *m_nickEdit = nullptr;
+    QLineEdit *m_email = nullptr;
+    QLineEdit *m_homepage = nullptr;
     QLineEdit *m_artDir = nullptr;
-    QComboBox *m_avatar = nullptr;
-    QComboBox *m_backdrop = nullptr;
+    QListWidget *m_avatarList = nullptr;
+    QListWidget *m_backdropList = nullptr;
+    QLabel *m_avatarPreview = nullptr;
+    QLabel *m_backdropPreview = nullptr;
+    QCheckBox *m_noComics = nullptr;
+    QCheckBox *m_allowWhispers = nullptr;
+    QCheckBox *m_playSounds = nullptr;
+    QCheckBox *m_showArrivals = nullptr;
     QCheckBox *m_comicView = nullptr;
 };

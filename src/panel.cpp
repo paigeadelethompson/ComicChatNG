@@ -42,28 +42,26 @@ void ComicPanel::layout()
 
         const int x = spacing * (i + 1) - scaled.width() / 2;
         const int y = groundY - scaled.height();
-        ch.body = scaled;
+        ch.bodyScaled = scaled;
         ch.bodyRect = QRect(x, y, scaled.width(), scaled.height());
 
         // Facing: characters on the right side of the panel are mirrored so a
         // pair turns toward each other (mirrors the original's m_flip).
         const bool rightSide = ch.bodyRect.center().x() >= size.width() / 2;
         ch.flip = n > 1 && rightSide;
-        if (ch.flip)
-            ch.body = ch.body.mirrored(true, false);
 
-        // Map the face tip through the same scale/flip into panel space.
+        // Map the face tip through the same scale (and flip) into panel space.
         const qreal fx = scaled.width() ? qreal(scaled.width()) / orig.width() : 0.0;
         const qreal fy = scaled.height() ? qreal(scaled.height()) / orig.height() : 0.0;
         if (ch.faceTip.x() >= 0 && ch.faceTip.y() >= 0 && fx > 0 && fy > 0) {
             int tipX = qRound(ch.faceTip.x() * fx);
             if (ch.flip)
                 tipX = scaled.width() - tipX;
-            ch.faceTip = QPoint(ch.bodyRect.left() + tipX,
-                                ch.bodyRect.top() + qRound(ch.faceTip.y() * fy));
+            ch.facePoint = QPoint(ch.bodyRect.left() + tipX,
+                                  ch.bodyRect.top() + qRound(ch.faceTip.y() * fy));
         } else {
-            ch.faceTip = QPoint(ch.bodyRect.center().x(),
-                                ch.bodyRect.top() + ch.bodyRect.height() / 4);
+            ch.facePoint = QPoint(ch.bodyRect.center().x(),
+                                  ch.bodyRect.top() + ch.bodyRect.height() / 4);
         }
     }
 
@@ -74,12 +72,14 @@ void ComicPanel::layout()
         for (const PanelCharacter &ch : characters) {
             if (ch.nick.compare(b.speaker, Qt::CaseInsensitive) == 0) {
                 owner = ch.bodyRect;
-                face = ch.faceTip;
+                face = ch.facePoint;
                 break;
             }
         }
-        if (owner.isEmpty() && !characters.isEmpty())
+        if (owner.isEmpty() && !characters.isEmpty()) {
             owner = characters.first().bodyRect;
+            face = characters.first().facePoint;
+        }
         if (face.isNull() && !owner.isEmpty())
             face = QPoint(owner.center().x(), owner.top() + owner.height() / 4);
         if (owner.isEmpty())
@@ -114,8 +114,12 @@ QImage ComicPanel::render() const
     p.drawRect(img.rect().adjusted(1, 1, -2, -2));
 
     for (const PanelCharacter &ch : characters) {
-        if (!ch.body.isNull())
-            p.drawImage(ch.bodyRect.topLeft(), ch.body);
+        if (ch.bodyScaled.isNull())
+            continue;
+        if (ch.flip)
+            p.drawImage(ch.bodyRect.topLeft(), ch.bodyScaled.flipped(Qt::Horizontal));
+        else
+            p.drawImage(ch.bodyRect.topLeft(), ch.bodyScaled);
     }
 
     for (const Balloon &b : balloons)

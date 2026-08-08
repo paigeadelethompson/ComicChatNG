@@ -11,9 +11,11 @@ struct PanelCharacter {
     QString nick;
     QString avatarName;
     Emotion emotion;
-    QImage body;
+    QImage body;        // rendered at original art resolution
+    QImage bodyScaled;  // laid-out as drawn (set by layout)
     QRect bodyRect;
-    QPoint faceTip;
+    QPoint faceTip;     // face point in ORIGINAL image coordinates
+    QPoint facePoint;   // face point mapped into panel coordinates (set by layout)
     bool flip = false;
 };
 

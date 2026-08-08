@@ -1,2 +1,0 @@
-set(__QT_DEPLOY_TARGET_ComicChatNG_FILE /home/ComicChatNG/build/ComicChatNG)
-set(__QT_DEPLOY_TARGET_ComicChatNG_TYPE EXECUTABLE)

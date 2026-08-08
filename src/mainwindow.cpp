@@ -46,6 +46,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_status = new QLabel(tr("Not connected"));
     statusBar()->addWidget(m_status, 1);
 
+    m_actComics = new QAction(icons::main(5), tr("Comic Stri&p"), this);
+    m_actComics->setCheckable(true);
+    m_actComics->setChecked(m_settings.comicView);
+    connect(m_actComics, &QAction::toggled, this, &MainWindow::toggleComicView);
+
+    m_actText = new QAction(icons::main(6), tr("Plain Te&xt"), this);
+    m_actText->setCheckable(true);
+    m_actText->setChecked(!m_settings.comicView);
+    connect(m_actText, &QAction::toggled, this, &MainWindow::toggleTextView);
+
     menuBar()->addMenu(buildFileMenu());
     menuBar()->addMenu(buildEditMenu());
     menuBar()->addMenu(buildViewMenu());
@@ -127,15 +137,8 @@ QMenu *MainWindow::buildViewMenu()
 
     menu->addSeparator();
 
-    m_actComics = menu->addAction(tr("Comic Stri&p"));
-    m_actComics->setCheckable(true);
-    m_actComics->setChecked(m_settings.comicView);
-    connect(m_actComics, &QAction::toggled, this, &MainWindow::toggleComicView);
-
-    m_actText = menu->addAction(tr("Plain Te&xt"));
-    m_actText->setCheckable(true);
-    m_actText->setChecked(!m_settings.comicView);
-    connect(m_actText, &QAction::toggled, this, &MainWindow::toggleTextView);
+    menu->addAction(m_actComics);
+    menu->addAction(m_actText);
 
     menu->addSeparator();
     menu->addAction(tr("&Status Bar"), this, &MainWindow::notImplemented);
@@ -247,15 +250,8 @@ QToolBar *MainWindow::buildMainToolbar()
     bar->addAction(icons::main(4), tr("Create Room"), this, &MainWindow::createRoom);
     bar->addSeparator();
 
-    m_actComics = bar->addAction(icons::main(5), tr("Comic Strip"));
-    m_actComics->setCheckable(true);
-    m_actComics->setChecked(m_settings.comicView);
-    connect(m_actComics, &QAction::toggled, this, &MainWindow::toggleComicView);
-
-    m_actText = bar->addAction(icons::main(6), tr("Plain Text"));
-    m_actText->setCheckable(true);
-    m_actText->setChecked(!m_settings.comicView);
-    connect(m_actText, &QAction::toggled, this, &MainWindow::toggleTextView);
+    bar->addAction(m_actComics);
+    bar->addAction(m_actText);
 
     bar->addSeparator();
     bar->addAction(icons::main(7), tr("Room List"), this, &MainWindow::showRoomList);

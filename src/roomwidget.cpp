@@ -298,6 +298,7 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
 {
     constexpr int kMaxBalloonsPerPanel = 5;
 
+    bool merging = false;
     ComicPanel panel;
     if (m_pageView->panelCount() > 0) {
         const ComicPanel last = m_pageView->lastPanel();
@@ -305,6 +306,7 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
             && !last.containsSpeaker(nick)
             && kind != BalloonKind::Action) {
             panel = last;
+            merging = true;
         }
     }
 
@@ -323,10 +325,14 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
         PanelCharacter ch;
         ch.nick = actor;
         ch.avatarName = avatarFor(actor);
-        ch.emotion = (actor.compare(m_settings->nick, Qt::CaseInsensitive) == 0
-                          && m_selfEmotion.intensity > 0.01f)
-            ? m_selfEmotion
-            : EmotionRules::analyze(text);
+        if (actor.compare(m_settings->nick, Qt::CaseInsensitive) == 0
+            && m_selfEmotion.intensity > 0.01f) {
+            ch.emotion = m_selfEmotion;
+        } else if (actor.compare(nick, Qt::CaseInsensitive) == 0) {
+            ch.emotion = EmotionRules::analyze(text);
+        } else {
+            ch.emotion = {0.f, 0.f};
+        }
         if (Avatar *av = m_art->avatarOrRandom(ch.avatarName)) {
             RenderedBody body = av->renderForEmotion(ch.emotion);
             ch.body = body.image;
@@ -342,10 +348,10 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text, Ballo
     balloon.text = text;
     panel.balloons.append(balloon);
 
-    if (panel.isEmpty())
-        m_pageView->addPanel(panel);
-    else
+    if (merging)
         m_pageView->replaceLastPanel(panel);
+    else
+        m_pageView->addPanel(panel);
     // Keep the newest panel in view.
     QTimer::singleShot(0, this, [this] {
         QScrollBar *sb = m_comicScroll->verticalScrollBar();

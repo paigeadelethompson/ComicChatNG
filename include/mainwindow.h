@@ -14,6 +14,7 @@ class QAction;
 class QToolBar;
 class QMenu;
 class QLineEdit;
+class QIcon;
 
 class MainWindow : public QMainWindow
 {

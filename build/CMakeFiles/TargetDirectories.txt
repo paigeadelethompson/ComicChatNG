@@ -1,9 +1,0 @@
-/home/ComicChatNG/build/CMakeFiles/ComicChatNG.dir
-/home/ComicChatNG/build/CMakeFiles/edit_cache.dir
-/home/ComicChatNG/build/CMakeFiles/rebuild_cache.dir
-/home/ComicChatNG/build/CMakeFiles/list_install_components.dir
-/home/ComicChatNG/build/CMakeFiles/install.dir
-/home/ComicChatNG/build/CMakeFiles/install/local.dir
-/home/ComicChatNG/build/CMakeFiles/install/strip.dir
-/home/ComicChatNG/build/CMakeFiles/ComicChatNG_autogen_timestamp_deps.dir
-/home/ComicChatNG/build/CMakeFiles/ComicChatNG_autogen.dir
