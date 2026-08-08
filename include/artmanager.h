@@ -8,36 +8,37 @@
 #include <QStringList>
 #include <memory>
 
-class ArtManager : public QObject
-{
-    Q_OBJECT
+class ArtManager : public QObject {
+  Q_OBJECT
 public:
-    explicit ArtManager(QObject *parent = nullptr);
+  explicit ArtManager(QObject *parent = nullptr);
 
-    void setArtDirectory(const QString &dir);
-    QString artDirectory() const { return m_artDir; }
+  void setArtDirectory(const QString &dir);
+  QString artDirectory() const { return m_artDir; }
 
-    bool scan();
-    bool hasArt() const { return !m_avatarNames.isEmpty() && !m_backdropNames.isEmpty(); }
+  bool scan();
+  bool hasArt() const {
+    return !m_avatarNames.isEmpty() && !m_backdropNames.isEmpty();
+  }
 
-    QStringList avatarNames() const { return m_avatarNames; }
-    QStringList backdropNames() const { return m_backdropNames; }
+  QStringList avatarNames() const { return m_avatarNames; }
+  QStringList backdropNames() const { return m_backdropNames; }
 
-    Avatar *avatar(const QString &name);
-    Backdrop *backdrop(const QString &name);
+  Avatar *avatar(const QString &name);
+  Backdrop *backdrop(const QString &name);
 
-    Avatar *avatarOrRandom(const QString &preferred);
-    Backdrop *defaultBackdrop();
+  Avatar *avatarOrRandom(const QString &preferred);
+  Backdrop *defaultBackdrop();
 
-    QString nextAvatarName();
+  QString nextAvatarName();
 
-    static QString resolveDefaultArtDir();
+  static QString resolveDefaultArtDir();
 
 private:
-    QString m_artDir;
-    QStringList m_avatarNames;
-    QStringList m_backdropNames;
-    QHash<QString, std::shared_ptr<Avatar>> m_avatars;
-    QHash<QString, std::shared_ptr<Backdrop>> m_backdrops;
-    int m_nextAvatarIndex = 0;
+  QString m_artDir;
+  QStringList m_avatarNames;
+  QStringList m_backdropNames;
+  QHash<QString, std::shared_ptr<Avatar>> m_avatars;
+  QHash<QString, std::shared_ptr<Backdrop>> m_backdrops;
+  int m_nextAvatarIndex = 0;
 };
