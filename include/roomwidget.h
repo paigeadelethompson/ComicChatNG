@@ -6,9 +6,11 @@
 #include "ircclient.h"
 
 #include <QHash>
+#include <QSet>
 #include <QStringList>
 #include <QWidget>
 
+class QEvent;
 class ArtManager;
 class PageView;
 class EmotionPicker;
@@ -51,6 +53,10 @@ public slots:
   void onAppearsAs(const QString &nick, const QString &avatarName);
   void onBackdropAnnounce(const QString &nick, const QString &backdropName);
   void onServerMessage(const QString &text);
+  void onMessageEmotion(const QString &nick, const Emotion &emotion);
+  void onTalkTo(const QString &nick, const QStringList &targets);
+  void onHeresInfo(const QString &nick, const QString &info);
+  void onIdentity(const QString &nick, const QString &realName);
 
 private slots:
   void sendSay();
@@ -60,11 +66,14 @@ private slots:
   void showRoomProperties();
   void notImplemented();
 
+protected:
+  bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
   void appendText(const QString &line);
   void addComicLine(const QString &nick, const QString &text, bool isAction);
   void addComicBalloon(const QString &nick, const QString &text,
-                       BalloonKind kind);
+                       BalloonKind kind, int depth = 0);
   void ensureMember(const QString &nick);
   void removeMember(const QString &nick);
   void refreshSelfPreview();
@@ -72,6 +81,10 @@ private:
   QString avatarFor(const QString &nick) const;
   void applyMemberIcon(int row);
   QStringList panelForActors(const QString &speaker);
+  QStringList selectedTalkTos() const;
+  QStringList talkTosFor(const QString &nick) const;
+  void updateTitlePanel();
+  bool isIgnored(const QString &nick) const;
 
   QString m_channel;
   ArtManager *m_art = nullptr;
@@ -88,7 +101,12 @@ private:
   QSplitter *m_mainSplit = nullptr;
 
   QHash<QString, QString> m_userAvatars; // nick lower -> avatar file base
+  QHash<QString, Emotion> m_userEmotions; // nick lower -> annotation emotion
+  QHash<QString, QStringList> m_userTalkTos; // nick lower -> addressees
+  QSet<QString> m_ignored;                // nick lower -> message filter
   QString m_roomBackdrop;
+  QString m_comicsTitle;
+  bool m_titleDone = false;
   QString m_previousSpeaker;
   Emotion m_selfEmotion;
   int m_sayMode = 0; // 0=Say, 1=Think, 2=Whisper, 3=Action

@@ -2,6 +2,40 @@
 
 #include <QRegularExpression>
 
+#include <QtMath>
+
+namespace {
+  // Byte index of an emotion value in the original Comic Chat emotion table,
+  // where 0..9 go out as ASCII digits '0'..'9' and 10+ as ':'.. (rare).
+  int emotionIndex(const Emotion &e) {
+    if (e.emotion >= 1001.f) {
+      const int g = int(e.emotion - 1001.f);
+      if (g >= 0 && g <= 7)
+        return 10 + g; // wave, pointother, pointself, doublepoint, shrug…
+    }
+    if (e.emotion == 0.f)
+      return 9; // neutral
+    const qreal step = 2.0 * M_PI / 8.0;
+    int i = qRound(qreal(e.emotion) / step);
+    i = ((i % 8) + 8) % 8;
+    return i + 1; // happy..laugh
+  }
+
+  char toByte(int v) { return char('0' + qBound(0, v, 9)); }
+  bool hasPrefix(const QString &s, const char *p) {
+    return s.startsWith(QLatin1String(p), Qt::CaseInsensitive);
+  }
+
+  // Channel status / IRC-operator prefixes (@ + % & ~ and the * used by some
+  // ircds for IRCops). They decorate names in NAMES and in talk-to lists but
+  // are not part of the nick, so they must be dropped before matching members.
+  QString stripNickStatus(QString n) {
+    while (!n.isEmpty() && QStringLiteral("~&@%+*").contains(n.at(0)))
+      n = n.mid(1);
+    return n;
+  }
+} // namespace
+
 IrcClient::IrcClient(QObject *parent) : QObject(parent) {
   connect(&m_socket, &QTcpSocket::connected, this, &IrcClient::onConnected);
   connect(&m_socket, &QTcpSocket::disconnected, this,
@@ -69,10 +103,10 @@ void IrcClient::setNick(const QString &nick) {
     writeLine(QStringLiteral("NICK %1").arg(nick));
 }
 
-void IrcClient::announceAppearance(const QString &channel,
+void IrcClient::announceAppearance(const QString &target,
                                    const QString &avatarName) {
-  // Comic Chat protocol: "# Appears as <name>"
-  sendPrivmsg(channel, QStringLiteral("# Appears as %1").arg(avatarName));
+  // Comic Chat protocol: "# Appears as <name>[.<url>]"
+  appearAs(target, avatarName);
 }
 
 void IrcClient::announceBackdrop(const QString &channel,
@@ -80,9 +114,53 @@ void IrcClient::announceBackdrop(const QString &channel,
   if (backdropName.isEmpty())
     return;
   // New clients recognise "# BDrop2: <name>,<url>"; older ones read "# BDrop:
-  // <name>".
+  // <name>". Only the bare name goes in the legacy form (no file extension).
+  const int dot = backdropName.indexOf(QLatin1Char('.'));
+  const QString baseName = dot > 0 ? backdropName.left(dot) : backdropName;
   sendPrivmsg(channel, QStringLiteral("# BDrop2: %1,").arg(backdropName));
-  sendPrivmsg(channel, QStringLiteral("# BDrop: %1").arg(backdropName));
+  sendPrivmsg(channel, QStringLiteral("# BDrop: %1").arg(baseName));
+}
+
+void IrcClient::sendComicMessage(const QString &target, const QString &text,
+                                 ComicMode mode, const QStringList &talkTos) {
+  const QString header = buildAnnotations(mode, talkTos);
+  if (mode == ComicMode::Action) {
+    writeLine(QStringLiteral("PRIVMSG %1 :%2")
+                  .arg(target, header) +
+              QStringLiteral("\x01"
+                             "ACTION %1\x01")
+                  .arg(text));
+  } else {
+    writeLine(QStringLiteral("PRIVMSG %1 :%2%3").arg(
+        target, header, text));
+  }
+}
+
+void IrcClient::requestProfile(const QString &nick) {
+  sendPrivmsg(nick, QStringLiteral("# GetInfo"));
+}
+
+void IrcClient::sendProfile(const QString &nick, const QString &profile) {
+  sendPrivmsg(nick, QStringLiteral("# HeresInfo: %1").arg(profile));
+}
+
+void IrcClient::requestAvatarInfo(const QString &nick) {
+  sendPrivmsg(nick, QStringLiteral("# GetCharInfo"));
+}
+
+void IrcClient::appearAs(const QString &target, const QString &avatarName,
+                         const QString &url) {
+  if (avatarName.isEmpty())
+    return;
+  if (!url.isEmpty())
+    sendPrivmsg(target,
+                QStringLiteral("# Appears as %1.%2").arg(avatarName, url));
+  else
+    sendPrivmsg(target, QStringLiteral("# Appears as %1").arg(avatarName));
+}
+
+void IrcClient::requestIdentity(const QString &nick) {
+  writeLine(QStringLiteral("WHOIS %1 %1").arg(nick));
 }
 
 void IrcClient::onConnected() {
@@ -232,10 +310,8 @@ void IrcClient::handleNumeric(int code, const QString &,
   case 353: { // RPL_NAMREPLY
     const QString ch = args.value(2);
     QStringList nicks = trailing.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-    for (QString &n : nicks) {
-      while (!n.isEmpty() && QStringLiteral("@%+&~").contains(n[0]))
-        n = n.mid(1);
-    }
+    for (QString &n : nicks)
+      n = stripNickStatus(n);
     m_namesAccum[ch].append(nicks);
     break;
   }
@@ -254,6 +330,9 @@ void IrcClient::handleNumeric(int code, const QString &,
     emit connectionError(tr("Nickname already in use"));
     emit serverMessage(trailing);
     break;
+  case 311: // RPL_WHOISUSER: <nick> <user> <host> * :<real name>
+    emit identityInfo(args.value(1), trailing);
+    break;
   default:
     if (!trailing.isEmpty())
       emit serverMessage(QStringLiteral("[%1] %2").arg(code).arg(trailing));
@@ -262,31 +341,54 @@ void IrcClient::handleNumeric(int code, const QString &,
 }
 
 void IrcClient::handlePrivmsg(const QString &nick, const QString &target,
-                              const QString &text) {
+                              const QString &rawText) {
+  QString text = rawText;
+  Emotion anno;
+  int annoMode = 0;
+  QStringList annoTalkTos;
+  if (stripAnnotations(text, &anno, &annoMode, &annoTalkTos) &&
+      anno.intensity > 0.01f)
+    emit messageEmotion(nick, anno);
+  if (!annoTalkTos.isEmpty())
+    emit talkTo(nick, annoTalkTos);
+
   // Comic Chat control messages are plain PRIVMSG text beginning with '#'.
   if (text.startsWith(QLatin1Char('#'))) {
     const QString body = text.mid(1);
     // Prefixes keep the leading space, e.g. " Appears as anna"
-    if (body.startsWith(QLatin1String(" Appears as "), Qt::CaseInsensitive)) {
-      emit appearsAs(nick, body.mid(12).trimmed());
+    if (hasPrefix(body, " Appears as ")) {
+      QString n = body.mid(12).trimmed();
+      const int dot = n.indexOf(QLatin1Char('.'));
+      if (dot > 0)
+        n = n.left(dot);
+      emit appearsAs(nick, n);
       return;
     }
-    if (body.startsWith(QLatin1String(" BDrop: "), Qt::CaseInsensitive)) {
+    if (hasPrefix(body, " BDrop: ")) {
       emit backdropAnnounce(nick, body.mid(8).trimmed());
       return;
     }
-    if (body.startsWith(QLatin1String(" BDrop2: "), Qt::CaseInsensitive)) {
+    if (hasPrefix(body, " BDrop2: ")) {
       const QString rest = body.mid(9).trimmed();
       const int comma = rest.indexOf(QLatin1Char(','));
       emit backdropAnnounce(nick, comma >= 0 ? rest.left(comma) : rest);
       return;
     }
-    if (body.startsWith(QLatin1String(" HeresInfo: "), Qt::CaseInsensitive)) {
+    if (hasPrefix(body, " HeresInfo: ")) {
       emit heresInfo(nick, body.mid(12).trimmed());
       return;
     }
-    // Other #-comment control messages (GetInfo, GetCharInfo, …) are not
-    // conversation text — swallow them so they never reach the room.
+    if (hasPrefix(body, " GetInfo")) {
+      // Someone asked for our profile — answer privately.
+      sendProfile(nick, m_selfProfile.isEmpty() ? m_realName : m_selfProfile);
+      return;
+    }
+    if (hasPrefix(body, " GetCharInfo")) {
+      // Someone asked for our avatar — tell them what we look like.
+      appearAs(nick, m_selfAvatar);
+      return;
+    }
+    // Other #-comment control messages never reach the room.
     return;
   }
 
@@ -315,7 +417,11 @@ void IrcClient::handlePrivmsg(const QString &nick, const QString &target,
 
   // Also accept plain-text Comic Chat markers used by some clients
   if (text.startsWith(QLatin1String("Appears as "), Qt::CaseInsensitive)) {
-    emit appearsAs(nick, text.mid(11).trimmed());
+    QString n = text.mid(11).trimmed();
+    const int dot = n.indexOf(QLatin1Char('.'));
+    if (dot > 0)
+      n = n.left(dot);
+    emit appearsAs(nick, n);
     return;
   }
   if (text.startsWith(QLatin1String("BDrop:"), Qt::CaseInsensitive)) {
@@ -323,5 +429,122 @@ void IrcClient::handlePrivmsg(const QString &nick, const QString &target,
     return;
   }
 
+  // The "M" annotation byte tells us the balloon kind even when the peer did
+  // not use a separate CTCP envelope.
+  if (annoMode == static_cast<int>(ComicMode::Action)) {
+    emit action(target, nick, text);
+    return;
+  }
+  if (annoMode == static_cast<int>(ComicMode::Think)) {
+    emit think(target, nick, text);
+    return;
+  }
+  if (annoMode == static_cast<int>(ComicMode::Whisper)) {
+    emit whisper(target, nick, text);
+    return;
+  }
+
   emit privmsg(target, nick, text);
+}
+
+QString IrcClient::buildAnnotations(ComicMode mode,
+                                    const QStringList &talkTos) const {
+  // "#G<torsoIndex><torsoEmotion><torsoIntensity>E<faceIndex><faceEmotion>
+  // <faceIntensity>M<mode>[T<addr>,<addr>]" — same layout bInsertAnnotations()
+  // produced in the original client. Torso/face indices are 0 (single-part
+  // avatars); the talk-tos are clipped at 5 like GetAddressees() did.
+  const int em = emotionIndex(m_selfEmotion);
+  const int in = int(m_selfEmotion.intensity * 10.0f + 0.5f);
+  const int modeByte = static_cast<int>(mode);
+  QString s = QStringLiteral("(#G0");
+  s += QLatin1Char(toByte(em));
+  s += QLatin1Char(toByte(in));
+  s += QLatin1String("E0");
+  s += QLatin1Char(toByte(em));
+  s += QLatin1Char(toByte(in));
+  s += QLatin1Char('M');
+  s += QLatin1Char(toByte(modeByte));
+  if (!talkTos.isEmpty()) {
+    s += QLatin1Char('T');
+    const int upto = qMin(talkTos.size(), 5);
+    for (int i = 0; i < upto; ++i) {
+      if (i > 0)
+        s += QLatin1Char(',');
+      s += talkTos.at(i);
+    }
+  }
+  s += QLatin1String(") ");
+  return s;
+}
+
+bool IrcClient::stripAnnotations(QString &text, Emotion *faceEmotion, int *mode,
+                                 QStringList *talkTos) {
+  if (faceEmotion)
+    *faceEmotion = Emotion();
+  if (mode)
+    *mode = 0;
+  if (talkTos)
+    talkTos->clear();
+  if (!text.startsWith(QLatin1String("(#")))
+    return false;
+  const int close = text.indexOf(QLatin1String(") "));
+  if (close < 2)
+    return false;
+
+  const QByteArray body = text.mid(2, close - 2).toLatin1();
+  Emotion face;
+  int parsedMode = 0;
+  const int n = body.size();
+  int i = 0;
+  while (i < n) {
+    const char c = body.at(i);
+    if (c == 'G' || c == 'g') {
+      i += 4; // <torso index><emotion><intensity>
+    } else if (c == 'E' || c == 'e') {
+      if (i + 3 <= n) {
+        const int emInt = body.at(i + 1) - '0';
+        const int inInt = body.at(i + 2) - '0';
+        const qreal step = 2.0 * M_PI / 8.0;
+        if (emInt >= 1 && emInt <= 8)
+          face.emotion = float((emInt - 1) * step);
+        else
+          face.emotion = 0.f;
+        face.intensity = qBound(0.f, float(inInt) / 10.f, 1.f);
+      }
+      i += 4;
+    } else if (c == 'R' || c == 'r') {
+      i += 1; // "requested" flag
+    } else if (c == 'M' || c == 'm') {
+      if (i + 1 < n) {
+        const int m = body.at(i + 1) - '0';
+        if (m >= 1 && m <= 5)
+          parsedMode = m;
+      }
+      i += 2;
+    } else if (c == 'T' || c == 't') {
+      // talk-tos: comma-separated nicks, Go until the closing ')'. GetTalkTos
+      // in the original stopped at ')' or end-of-string, same here.
+      int j = i + 1;
+      while (j < n) {
+        int k = j;
+        while (k < n && body.at(k) != ',')
+          ++k;
+        const QString name =
+            stripNickStatus(QString::fromLatin1(body.mid(j, k - j)).trimmed());
+        if (!name.isEmpty() && talkTos)
+          talkTos->append(name);
+        j = k + 1;
+      }
+      i = n;
+    } else {
+      break;
+    }
+  }
+
+  text = text.mid(close + 2);
+  if (faceEmotion)
+    *faceEmotion = face;
+  if (mode)
+    *mode = parsedMode;
+  return true;
 }

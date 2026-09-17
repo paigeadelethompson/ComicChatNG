@@ -32,7 +32,10 @@ set(CCNG_SOURCES
     src/icons.cpp
 )
 
-set(CCNG_RESOURCES res/icons.qrc)
+set(CCNG_RESOURCES
+    res/icons.qrc
+    res/fonts.qrc
+)
 
 set(CCNG_HEADERS
     include/avbformat.h

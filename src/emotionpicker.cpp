@@ -29,7 +29,8 @@ QPointF EmotionPicker::centre() const {
 }
 
 qreal EmotionPicker::radius() const {
-  return qMax(qreal(8.0), qMin(width(), height()) / 2.0 - 16.0);
+  // Leave room around the wheel for the emotion labels (see paintEvent).
+  return qMax(qreal(8.0), qMin(width(), height()) / 2.0 - 24.0);
 }
 
 void EmotionPicker::setEmotion(const Emotion &e) {
@@ -107,6 +108,10 @@ void EmotionPicker::paintEvent(QPaintEvent *) {
   p.drawLine(QPointF(c.x(), c.y() - r), QPointF(c.x(), c.y() + r));
 
   const qreal step = kTwoPi / kEmoCount;
+  const qreal half = qMin(width(), height()) / 2.0;
+  // Labels live in the ring between the wheel edge and the widget border;
+  // skip them entirely if the widget is too small to fit that ring.
+  const bool drawLabels = r + 24.0 <= half - 1.0;
   for (int i = 0; i < kEmoCount; ++i) {
     const qreal a = i * step;
     const QPointF pos = c + QPointF(qCos(a), -qSin(a)) * r;
@@ -115,14 +120,16 @@ void EmotionPicker::paintEvent(QPaintEvent *) {
     dot.addEllipse(pos, 6, 6);
     p.fillPath(dot, QColor(70, 90, 160));
 
-    const QPointF lp = c + QPointF(qCos(a), -qSin(a)) * (r + 15);
-    QRectF lr(lp.x() - 36, lp.y() - 7, 72, 14);
-    QFont f = p.font();
-    f.setPointSizeF(7.5);
-    f.setBold(true);
-    p.setFont(f);
-    p.setPen(QColor(20, 20, 20));
-    p.drawText(lr, Qt::AlignCenter, emotionName(EmotionId(i + 1)));
+    if (drawLabels) {
+      const QPointF lp = c + QPointF(qCos(a), -qSin(a)) * (r + 8);
+      QRectF lr(lp.x() - 16, lp.y() - 6, 32, 12);
+      QFont f = p.font();
+      f.setPointSizeF(7.5);
+      f.setBold(true);
+      p.setFont(f);
+      p.setPen(QColor(20, 20, 20));
+      p.drawText(lr, Qt::AlignCenter, emotionName(EmotionId(i + 1)));
+    }
   }
 
   // Centre.

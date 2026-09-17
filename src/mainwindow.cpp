@@ -85,6 +85,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
           &MainWindow::onChannelParted);
   connect(&m_irc, &IrcClient::privmsg, this, &MainWindow::routePrivmsg);
   connect(&m_irc, &IrcClient::action, this, &MainWindow::routeAction);
+  connect(&m_irc, &IrcClient::think, this, &MainWindow::routeThink);
+  connect(&m_irc, &IrcClient::whisper, this, &MainWindow::routeWhisper);
+  connect(&m_irc, &IrcClient::messageEmotion, this,
+          &MainWindow::routeMessageEmotion);
+  connect(&m_irc, &IrcClient::talkTo, this, &MainWindow::routeTalkTo);
+  connect(&m_irc, &IrcClient::heresInfo, this, &MainWindow::routeHeresInfo);
+  connect(&m_irc, &IrcClient::identityInfo, this, &MainWindow::routeIdentity);
   connect(&m_irc, &IrcClient::userJoined, this, &MainWindow::routeUserJoined);
   connect(&m_irc, &IrcClient::userParted, this, &MainWindow::routeUserParted);
   connect(&m_irc, &IrcClient::userQuit, this, &MainWindow::routeUserQuit);
@@ -415,6 +422,8 @@ void MainWindow::about() {
 }
 
 void MainWindow::onConnected() {
+  m_irc.setSelfAvatar(m_settings.avatarName);
+  m_irc.setSelfProfile(m_settings.realName);
   m_status->setText(tr("Connected — registering…"));
 }
 
@@ -463,6 +472,41 @@ void MainWindow::routeAction(const QString &channel, const QString &nick,
                              const QString &text) {
   if (RoomWidget *r = roomForChannel(channel, true))
     r->onAction(channel, nick, text);
+}
+
+void MainWindow::routeThink(const QString &channel, const QString &nick,
+                            const QString &text) {
+  if (RoomWidget *r = roomForChannel(channel, true))
+    r->onThink(channel, nick, text);
+}
+
+void MainWindow::routeWhisper(const QString &recipient, const QString &nick,
+                              const QString &text) {
+  // Whispers are addressed to us directly; the room that belongs to `recipient`
+  // may not exist yet, so route to the current room instead.
+  if (RoomWidget *r = currentRoom())
+    r->onWhisper(nick, recipient, text);
+}
+
+void MainWindow::routeMessageEmotion(const QString &nick,
+                                     const Emotion &emotion) {
+  for (RoomWidget *r : m_rooms)
+    r->onMessageEmotion(nick, emotion);
+}
+
+void MainWindow::routeTalkTo(const QString &nick, const QStringList &targets) {
+  for (RoomWidget *r : m_rooms)
+    r->onTalkTo(nick, targets);
+}
+
+void MainWindow::routeHeresInfo(const QString &nick, const QString &info) {
+  for (RoomWidget *r : m_rooms)
+    r->onHeresInfo(nick, info);
+}
+
+void MainWindow::routeIdentity(const QString &nick, const QString &realName) {
+  for (RoomWidget *r : m_rooms)
+    r->onIdentity(nick, realName);
 }
 
 void MainWindow::routeUserJoined(const QString &channel, const QString &nick) {

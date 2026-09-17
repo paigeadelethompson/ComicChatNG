@@ -1,5 +1,7 @@
 #pragma once
 
+#include "emotions.h"
+
 #include <QHash>
 #include <QObject>
 #include <QString>
@@ -10,6 +12,15 @@ struct ChatUser {
   QString avatarName;
   QString backdropName;
   bool isSelf = false;
+};
+
+// Which of the classic Say / Think / Whisper / Action balloons a comic message
+// is sent as. Encoded as the Comic Chat "M" annotation byte on the wire.
+enum class ComicMode {
+  Say = 1,
+  Whisper = 2,
+  Think = 3,
+  Action = 5,
 };
 
 class IrcClient : public QObject {
@@ -33,8 +44,29 @@ public:
   QString currentChannel() const { return m_channel; }
 
   // Comic Chat CTCP helpers
-  void announceAppearance(const QString &channel, const QString &avatarName);
+  void announceAppearance(const QString &target, const QString &avatarName);
   void announceBackdrop(const QString &channel, const QString &backdropName);
+
+  // Body state used to build message annotations on the wire.
+  void setSelfAvatar(const QString &name) { m_selfAvatar = name; }
+  void setSelfEmotion(const Emotion &e) { m_selfEmotion = e; }
+  void setSelfProfile(const QString &profile) { m_selfProfile = profile; }
+
+  // Send a comic-view message with the full Comic Chat annotation header
+  // ("(#G…E…M…) "), so other Comic Chat clients emote our avatar and see the
+  // right balloon kind. `talkTos` are the addresses of who we're talking to
+  // (embedded as the trailing "T<nick>,<nick>" byte list).
+  void sendComicMessage(const QString &target, const QString &text,
+                        ComicMode mode,
+                        const QStringList &talkTos = {});
+
+  // Comic Chat profile / avatar info exchange (plain IRC).
+  void requestProfile(const QString &nick);   // "# GetInfo"
+  void sendProfile(const QString &nick, const QString &profile);
+  void requestAvatarInfo(const QString &nick); // "# GetCharInfo"
+  void appearAs(const QString &target, const QString &avatarName,
+                const QString &url = {});
+  void requestIdentity(const QString &nick); // IRC WHOIS
 
 signals:
   void connected();
@@ -53,10 +85,18 @@ signals:
   void privmsg(const QString &channel, const QString &nick,
                const QString &text);
   void action(const QString &channel, const QString &nick, const QString &text);
+  void think(const QString &channel, const QString &nick, const QString &text);
+  void whisper(const QString &recipient, const QString &nick,
+               const QString &text);
   void notice(const QString &nick, const QString &text);
   void appearsAs(const QString &nick, const QString &avatarName);
   void backdropAnnounce(const QString &nick, const QString &backdropName);
   void heresInfo(const QString &nick, const QString &info);
+  void identityInfo(const QString &nick, const QString &realName);
+  // Emotion carried by the "E" annotation bytes of an incoming message.
+  void messageEmotion(const QString &nick, const Emotion &emotion);
+  // Who the peer addressed, carried by the "T" annotation bytes.
+  void talkTo(const QString &nick, const QStringList &targets);
 
 private slots:
   void onConnected();
@@ -71,6 +111,14 @@ private:
   void handlePrivmsg(const QString &nick, const QString &target,
                      const QString &text);
   static QString parseNick(const QString &prefix);
+  // Strip "(#G…E…M…) " from the front of an incoming comic message. Fills
+  // `faceEmotion` (from the E bytes) and `mode` (ComicMode value, 0 = none).
+  static bool stripAnnotations(QString &text, Emotion *faceEmotion, int *mode,
+                               QStringList *talkTos = nullptr);
+  // "#G<gestIdx><gestEmo><gestInt>E<faceIdx><faceEmo><faceInt>M<mode>[T<a>,<b>]"
+  // in parentheses, the header Comic Chat prepends to every comic message.
+  QString buildAnnotations(ComicMode mode,
+                           const QStringList &talkTos = {}) const;
   void writeLine(const QString &line);
 
   QTcpSocket m_socket;
@@ -82,4 +130,7 @@ private:
   QString m_pendingChannel;
   bool m_registered = false;
   QHash<QString, QStringList> m_namesAccum;
+  QString m_selfAvatar;
+  QString m_selfProfile;
+  Emotion m_selfEmotion;
 };

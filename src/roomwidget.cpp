@@ -7,16 +7,19 @@
 #include "panel.h"
 #include "rules.h"
 
+#include <QAbstractItemView>
 #include <QAction>
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListView>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMenu>
@@ -25,6 +28,8 @@
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRandomGenerator>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSplitter>
@@ -47,6 +52,9 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art,
   m_comicScroll->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_comicScroll, &QScrollArea::customContextMenuRequested, this,
           &RoomWidget::showRoomMenu);
+  // Redraw/reflow the comic strip when the window (and therefore the scroll
+  // viewport) changes size.
+  m_comicScroll->viewport()->installEventFilter(this);
 
   m_textView = new QPlainTextEdit;
   m_textView->setReadOnly(true);
@@ -55,6 +63,9 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art,
   m_members = new QListWidget;
   m_members->setMinimumWidth(150);
   m_members->setIconSize(QSize(44, 44));
+  // Multi-select: the highlighted members are who you are talking to (the
+  // original client copied this selection into the "T" annotation bytes).
+  m_members->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_members->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_members, &QListWidget::customContextMenuRequested, this,
           &RoomWidget::showMemberMenu);
@@ -145,8 +156,17 @@ RoomWidget::RoomWidget(const QString &channel, ArtManager *art,
 
   setComicMode(m_settings->comicView);
 
+  if (m_irc) {
+    m_irc->setSelfAvatar(m_settings->avatarName);
+    m_irc->setSelfEmotion(m_selfEmotion);
+    m_irc->setSelfProfile(m_settings->realName);
+  }
   m_userAvatars.insert(m_settings->nick.toLower(), m_settings->avatarName);
   refreshSelfPreview();
+
+  // Show the title card immediately, before anyone has spoken.
+  if (m_settings->comicView)
+    updateTitlePanel();
 }
 
 void RoomWidget::setComicMode(bool on) {
@@ -167,6 +187,8 @@ void RoomWidget::ensureMember(const QString &nick) {
   if (!m_userAvatars.contains(nick.toLower()))
     m_userAvatars.insert(nick.toLower(), m_art->nextAvatarName());
   applyMemberIcon(m_members->count() - 1);
+  if (m_settings->comicView && m_titleDone)
+    updateTitlePanel();
 }
 
 void RoomWidget::applyMemberIcon(int row) {
@@ -193,6 +215,9 @@ void RoomWidget::removeMember(const QString &nick) {
       break;
     }
   }
+  m_userTalkTos.remove(nick.toLower());
+  if (m_settings->comicView && m_titleDone)
+    updateTitlePanel();
 }
 
 QString RoomWidget::avatarFor(const QString &nick) const {
@@ -207,18 +232,34 @@ void RoomWidget::sendSay() {
   const bool localOnly =
       m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0 ||
       !m_irc || !m_irc->isConnected();
+  // Whoever is highlighted in the member list is who we're talking at — the
+  // original client copied the list selection into the "T" annotation bytes.
+  const QStringList talkTos = selectedTalkTos();
+  // Remember who we addressed: the server never echoes our own "T" annotation
+  // back, so the panel would otherwise not include the person we talked to.
+  m_userTalkTos[m_settings->nick.toLower()] = talkTos;
 
   if (text.startsWith(QLatin1Char('/'))) {
     const QString cmd = text.mid(1);
     if (cmd.startsWith(QLatin1String("me "), Qt::CaseInsensitive)) {
       const QString act = cmd.mid(3);
-      if (!localOnly)
+      if (localOnly) {
+        // nothing to send offline
+      } else if (m_settings->comicView) {
+        m_irc->sendComicMessage(m_channel, act, ComicMode::Action, talkTos);
+      } else {
         m_irc->sendAction(m_channel, act);
+      }
       onAction(m_channel, m_settings->nick, act);
     } else if (cmd.startsWith(QLatin1String("think "), Qt::CaseInsensitive)) {
       const QString thought = cmd.mid(6);
-      if (!localOnly)
-        m_irc->sendPrivmsg(m_channel, thought);
+      if (!localOnly) {
+        if (m_settings->comicView)
+          m_irc->sendComicMessage(m_channel, thought, ComicMode::Think,
+                                  talkTos);
+        else
+          m_irc->sendPrivmsg(m_channel, thought);
+      }
       onThink(m_channel, m_settings->nick, thought);
     } else if (cmd.startsWith(QLatin1String("appear "), Qt::CaseInsensitive)) {
       const QString name = cmd.mid(7).trimmed();
@@ -230,6 +271,8 @@ void RoomWidget::sendSay() {
         m_settings->avatarName = name;
         m_settings->save();
         m_userAvatars.insert(m_settings->nick.toLower(), name);
+        if (m_irc)
+          m_irc->setSelfAvatar(name);
         if (!localOnly)
           m_irc->announceAppearance(m_channel, name);
         onAppearsAs(m_settings->nick, name);
@@ -243,8 +286,12 @@ void RoomWidget::sendSay() {
       if (who.isEmpty() || wtext.isEmpty()) {
         appendText(tr("/whisper <nick> <message>"));
       } else {
-        if (!localOnly)
-          m_irc->sendPrivmsg(who, wtext);
+        if (!localOnly) {
+          if (m_settings->comicView)
+            m_irc->sendComicMessage(who, wtext, ComicMode::Whisper, {who});
+          else
+            m_irc->sendPrivmsg(who, wtext);
+        }
         onWhisper(m_settings->nick, who, wtext);
         appendText(QStringLiteral("[whisper to %1] %2").arg(who, wtext));
       }
@@ -255,17 +302,25 @@ void RoomWidget::sendSay() {
       appendText(tr("(offline) /%1").arg(cmd));
     }
   } else {
+    const bool comic = m_settings->comicView && !localOnly;
     if (m_sayMode == 3) {
-      if (!localOnly)
+      if (comic)
+        m_irc->sendComicMessage(m_channel, text, ComicMode::Action, talkTos);
+      else if (!localOnly)
         m_irc->sendAction(m_channel, text);
       onAction(m_channel, m_settings->nick, text);
     } else if (m_sayMode == 1) {
-      if (!localOnly)
+      if (comic)
+        m_irc->sendComicMessage(m_channel, text, ComicMode::Think, talkTos);
+      else if (!localOnly)
         m_irc->sendPrivmsg(m_channel, text);
       onThink(m_channel, m_settings->nick, text);
     } else if (m_sayMode == 2) {
       if (!m_whisperTarget.isEmpty()) {
-        if (!localOnly)
+        if (comic)
+          m_irc->sendComicMessage(m_whisperTarget, text, ComicMode::Whisper,
+                                  {m_whisperTarget});
+        else if (!localOnly)
           m_irc->sendPrivmsg(m_whisperTarget, text);
         onWhisper(m_settings->nick, m_whisperTarget, text);
         appendText(
@@ -275,7 +330,9 @@ void RoomWidget::sendSay() {
                       "pick a target."));
       }
     } else {
-      if (!localOnly)
+      if (comic)
+        m_irc->sendComicMessage(m_channel, text, ComicMode::Say, talkTos);
+      else if (!localOnly)
         m_irc->sendPrivmsg(m_channel, text);
       onPrivmsg(m_channel, m_settings->nick, text);
     }
@@ -291,8 +348,13 @@ void RoomWidget::addComicLine(const QString &nick, const QString &text,
 }
 
 void RoomWidget::addComicBalloon(const QString &nick, const QString &text,
-                                 BalloonKind kind) {
+                                 BalloonKind kind, int depth) {
   constexpr int kMaxBalloonsPerPanel = 5;
+
+  // The very first frame is preceded by the comic-strip title card
+  // ("<title> / STARRING / <avatar> <nick> …"), like the original client.
+  if (!m_titleDone)
+    updateTitlePanel();
 
   bool merging = false;
   ComicPanel panel;
@@ -311,8 +373,21 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text,
     panel.backdrop = bd->image();
 
   // The speaker, plus the previous speaker so the frame reads like a
-  // conversation (two characters at most, no duplicate avatars).
-  const QStringList actors = panelForActors(nick);
+  // conversation, plus anyone the speaker was addressing ("T" annotation), so
+  // the panel shows who is being talked at — original AddTalkTos() behavior.
+  QStringList actors = panelForActors(nick);
+  const QStringList targets = talkTosFor(nick);
+  for (const QString &t : targets) {
+    bool have = false;
+    for (const QString &a : actors) {
+      if (a.compare(t, Qt::CaseInsensitive) == 0) {
+        have = true;
+        break;
+      }
+    }
+    if (!have && !panel.containsSpeaker(t) && actors.size() < 5)
+      actors.append(t);
+  }
 
   for (const QString &actor : actors) {
     if (panel.containsSpeaker(actor))
@@ -320,11 +395,18 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text,
     PanelCharacter ch;
     ch.nick = actor;
     ch.avatarName = avatarFor(actor);
+    if (actor.compare(nick, Qt::CaseInsensitive) == 0 && !targets.isEmpty())
+      ch.talkTo = targets.first();
+    const QString actorKey = actor.toLower();
     if (actor.compare(m_settings->nick, Qt::CaseInsensitive) == 0 &&
         m_selfEmotion.intensity > 0.01f) {
       ch.emotion = m_selfEmotion;
     } else if (actor.compare(nick, Qt::CaseInsensitive) == 0) {
-      ch.emotion = EmotionRules::analyze(text);
+      // Prefer the emotion the peer transmitted in its annotation; fall back
+      // to the Comic Chat text heuristics.
+      ch.emotion = m_userEmotions.contains(actorKey)
+                       ? m_userEmotions.value(actorKey)
+                       : EmotionRules::analyze(text);
     } else {
       ch.emotion = {0.f, 0.f};
     }
@@ -347,6 +429,14 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text,
     m_pageView->replaceLastPanel(panel);
   else
     m_pageView->addPanel(panel);
+
+  // A message too long for its frame is not cut off: the overflow is queued as
+  // a continuation panel, exactly like the original Comic Chat did.
+  if (depth < 6) {
+    const ComicPanel shown = m_pageView->lastPanel();
+    for (const BalloonContinuation &c : shown.leftovers)
+      addComicBalloon(c.speaker, c.text, c.kind, depth + 1);
+  }
   // Keep the newest panel in view.
   QTimer::singleShot(0, this, [this] {
     QScrollBar *sb = m_comicScroll->verticalScrollBar();
@@ -356,6 +446,8 @@ void RoomWidget::addComicBalloon(const QString &nick, const QString &text,
 
 void RoomWidget::onEmotionChanged(const Emotion &e) {
   m_selfEmotion = e;
+  if (m_irc)
+    m_irc->setSelfEmotion(e);
   refreshSelfPreview();
 }
 
@@ -391,23 +483,64 @@ void RoomWidget::setSelfAvatar(const QString &name) {
   m_settings->avatarName = name;
   m_settings->save();
   m_userAvatars.insert(m_settings->nick.toLower(), name);
+  if (m_irc)
+    m_irc->setSelfAvatar(name);
+  const bool local =
+      m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0;
+  if (m_irc && m_irc->isConnected() && !local)
+    m_irc->announceAppearance(m_channel, name);
   onAppearsAs(m_settings->nick, name);
+  updateTitlePanel();
+}
+
+void RoomWidget::updateTitlePanel() {
+  if (m_comicsTitle.isEmpty()) {
+    // The same random caption pool the original client shipped.
+    static const char *const kTitles[] = {
+        "EVERYONE'S A COMIC",      "DOGGY DOGGY WAH WAH",
+        "YOU SHOULDA BEEN THERE",  "NO EXIT",
+        "WISH YOU WERE HERE",      "DEEPEST DARKEST DESIRES",
+        "JUST US CHUMPS",          "SIGHTED IN CYBERSPACE",
+        "THE GANG'S ALL HERE",     "BORN TO CHAT",
+        "NETWORKED NERDS",         "VIRTUALLY VACUOUS",
+        "IF I ONLY HAD A BRAIN",   "SLUMBER PARTY",
+        "MEET MARKET",             "MICROSOFT CHAT",
+    };
+    const int n = int(sizeof(kTitles) / sizeof(kTitles[0]));
+    m_comicsTitle = QString::fromLatin1(
+        kTitles[QRandomGenerator::global()->bounded(n)]);
+  }
+
+  QVector<PageView::TitleStar> stars;
+  auto addStar = [&](const QString &nick) {
+    if (nick.isEmpty())
+      return;
+    for (const PageView::TitleStar &s : stars) {
+      if (s.nick.compare(nick, Qt::CaseInsensitive) == 0)
+        return;
+    }
+    PageView::TitleStar st;
+    st.nick = nick;
+    if (Avatar *av = m_art->avatar(avatarFor(nick))) {
+      st.icon = av->iconImage();
+      if (st.icon.isNull())
+        st.icon = av->renderForEmotion(Emotion(0.f, 0.f)).image;
+    }
+    stars.append(st);
+  };
+
+  addStar(m_settings->nick);
+  for (int i = 0; i < m_members->count(); ++i)
+    addStar(m_members->item(i)->text());
+
+  m_pageView->setTitle(m_comicsTitle, stars);
+  m_titleDone = true;
 }
 
 void RoomWidget::showRoomMenu(const QPoint &gpos) {
   QMenu menu(this);
 
-  QAction *comic = menu.addAction(tr("Comic Stri&p"));
-  comic->setCheckable(true);
-  comic->setChecked(m_settings->comicView);
-  connect(comic, &QAction::toggled, this, &RoomWidget::setComicMode);
-
-  QAction *text = menu.addAction(tr("Plain Te&xt"));
-  text->setCheckable(true);
-  text->setChecked(!m_settings->comicView);
-  connect(text, &QAction::toggled, this, &RoomWidget::setComicMode);
-
-  menu.addSeparator();
+  // Same layout as the original Comic Chat "View" context menu.
   connect(menu.addAction(tr("&Copy\tCtrl+C")), &QAction::triggered, this,
           [this] {
             if (m_textView)
@@ -421,9 +554,23 @@ void RoomWidget::showRoomMenu(const QPoint &gpos) {
           });
 
   menu.addSeparator();
+
+  QAction *comic = menu.addAction(tr("Comic Stri&p"));
+  comic->setCheckable(true);
+  comic->setChecked(m_settings->comicView);
+  connect(comic, &QAction::toggled, this, &RoomWidget::setComicMode);
+
+  QAction *text = menu.addAction(tr("Plain Te&xt"));
+  text->setCheckable(true);
+  text->setChecked(!m_settings->comicView);
+  connect(text, &QAction::toggled, this, &RoomWidget::setComicMode);
+
+  menu.addSeparator();
   connect(menu.addAction(tr("&Room Properties...")), &QAction::triggered, this,
           &RoomWidget::showRoomProperties);
 
+  // Comic Chat's appearance swap lives in a sub-menu of its own, below the
+  // original items.
   menu.addSeparator();
   QMenu *charMenu = menu.addMenu(tr("&Character"));
   for (const QString &name : m_art->avatarNames()) {
@@ -450,20 +597,53 @@ void RoomWidget::showRoomMenu(const QPoint &gpos) {
 
 void RoomWidget::showMemberMenu(const QPoint &pos) {
   QListWidgetItem *item = m_members->itemAt(pos);
-  if (!item)
+
+  // Right-clicking empty space flips the list between List and Icon layout,
+  // just like the member-list context menu in the original client.
+  if (!item) {
+    if (!m_settings->comicView)
+      return;
+    QMenu menu(this);
+    const bool inIcon = m_members->viewMode() == QListView::IconMode;
+    QAction *list = menu.addAction(tr("&List"));
+    list->setCheckable(true);
+    list->setChecked(!inIcon);
+    connect(list, &QAction::triggered, this, [this] {
+      m_members->setViewMode(QListView::ListMode);
+      m_members->setIconSize(QSize(18, 18));
+    });
+    QAction *icon = menu.addAction(tr("&Icon"));
+    icon->setCheckable(true);
+    icon->setChecked(inIcon);
+    connect(icon, &QAction::triggered, this, [this] {
+      m_members->setViewMode(QListView::IconMode);
+      m_members->setIconSize(QSize(44, 44));
+    });
+    menu.exec(m_members->viewport()->mapToGlobal(pos));
     return;
+  }
+
   const QString nick = item->text();
   QMenu menu(this);
+  const bool local =
+      m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0;
+  const bool online = m_irc && m_irc->isConnected() && !local;
 
   connect(menu.addAction(tr("&Get Profile")), &QAction::triggered, this,
-          [this, nick] {
-            appendText(
-                tr("[profile of %1 not available on this server]").arg(nick));
+          [this, nick, online] {
+            if (online)
+              m_irc->requestProfile(nick);
+            else
+              appendText(
+                  tr("[profile of %1 not available on this server]").arg(nick));
           });
   connect(menu.addAction(tr("Get &Identity")), &QAction::triggered, this,
-          [this, nick] {
-            appendText(
-                tr("[identity of %1 not available on this server]").arg(nick));
+          [this, nick, online] {
+            if (online)
+              m_irc->requestIdentity(nick);
+            else
+              appendText(
+                  tr("[identity of %1 not available on this server]").arg(nick));
           });
   QAction *whisper = menu.addAction(tr("&Whisper Box..."));
   whisper->setIcon(icons::saybar(2));
@@ -477,8 +657,19 @@ void RoomWidget::showMemberMenu(const QPoint &pos) {
           this, [this, nick] {
             appendText(tr("[%1 added to notifications]").arg(nick));
           });
-  connect(menu.addAction(tr("&Ignore")), &QAction::triggered, this,
-          [this, nick] { appendText(tr("[%1 ignored]").arg(nick)); });
+  QAction *ignore = menu.addAction(tr("&Ignore"));
+  ignore->setCheckable(true);
+  ignore->setChecked(m_ignored.contains(nick.toLower()));
+  connect(ignore, &QAction::triggered, this, [this, nick] {
+    const QString key = nick.toLower();
+    if (m_ignored.contains(key)) {
+      m_ignored.remove(key);
+      appendText(tr("[%1 no longer ignored]").arg(nick));
+    } else {
+      m_ignored.insert(key);
+      appendText(tr("[%1 ignored]").arg(nick));
+    }
+  });
   menu.addSeparator();
   connect(menu.addAction(tr("&Send E-mail")), &QAction::triggered, this,
           &RoomWidget::notImplemented);
@@ -496,18 +687,6 @@ void RoomWidget::showMemberMenu(const QPoint &pos) {
   connect(menu.addAction(tr("&Local Time")), &QAction::triggered, this,
           &RoomWidget::notImplemented);
 
-  menu.addSeparator();
-  if (m_userAvatars.contains(nick.toLower())) {
-    QMenu *pick = menu.addMenu(tr("&Character"));
-    for (const QString &name : m_art->avatarNames()) {
-      QAction *a = pick->addAction(name);
-      a->setCheckable(true);
-      a->setChecked(name.compare(m_settings->avatarName, Qt::CaseInsensitive) ==
-                    0);
-      connect(a, &QAction::triggered, this,
-              [this, name] { setSelfAvatar(name); });
-    }
-  }
   menu.exec(m_members->viewport()->mapToGlobal(pos));
 }
 
@@ -541,6 +720,8 @@ void RoomWidget::notImplemented() {
 
 void RoomWidget::onPrivmsg(const QString &channel, const QString &nick,
                            const QString &text) {
+  if (isIgnored(nick))
+    return;
   const bool local =
       m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0;
   if (!local) {
@@ -556,6 +737,8 @@ void RoomWidget::onPrivmsg(const QString &channel, const QString &nick,
 
 void RoomWidget::onAction(const QString &channel, const QString &nick,
                           const QString &text) {
+  if (isIgnored(nick))
+    return;
   const bool local =
       m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0;
   if (!local && channel.compare(m_channel, Qt::CaseInsensitive) != 0)
@@ -568,6 +751,8 @@ void RoomWidget::onAction(const QString &channel, const QString &nick,
 
 void RoomWidget::onThink(const QString &channel, const QString &nick,
                          const QString &text) {
+  if (isIgnored(nick))
+    return;
   const bool local =
       m_channel.compare(QStringLiteral("#local"), Qt::CaseInsensitive) == 0;
   if (!local && channel.compare(m_channel, Qt::CaseInsensitive) != 0)
@@ -582,6 +767,8 @@ void RoomWidget::onWhisper(const QString &sender, const QString &who,
                            const QString &text) {
   // Whisper shows a subtle balloon; the target isn't part of the panel.
   Q_UNUSED(who);
+  if (isIgnored(sender))
+    return;
   ensureMember(sender);
   if (m_settings->comicView)
     addComicBalloon(sender, QStringLiteral("%1 %2").arg(sender, text),
@@ -635,9 +822,13 @@ void RoomWidget::onNamesList(const QString &channel, const QStringList &nicks) {
   m_members->clear();
   for (const QString &n : nicks)
     ensureMember(n);
+  if (m_settings->comicView)
+    updateTitlePanel();
 }
 
 void RoomWidget::onAppearsAs(const QString &nick, const QString &avatarName) {
+  if (isIgnored(nick))
+    return;
   m_userAvatars.insert(nick.toLower(), avatarName);
   ensureMember(nick);
   for (int i = 0; i < m_members->count(); ++i) {
@@ -649,13 +840,72 @@ void RoomWidget::onAppearsAs(const QString &nick, const QString &avatarName) {
   appendText(QStringLiteral("* %1 appears as %2").arg(nick, avatarName));
   if (nick.compare(m_settings->nick, Qt::CaseInsensitive) == 0)
     refreshSelfPreview();
+  if (m_settings->comicView && m_titleDone)
+    updateTitlePanel();
 }
 
 void RoomWidget::onBackdropAnnounce(const QString &nick,
                                     const QString &backdropName) {
+  if (isIgnored(nick))
+    return;
   Q_UNUSED(nick);
   m_roomBackdrop = backdropName;
   appendText(QStringLiteral("* Backdrop set to %1").arg(backdropName));
 }
 
 void RoomWidget::onServerMessage(const QString &text) { appendText(text); }
+
+bool RoomWidget::isIgnored(const QString &nick) const {
+  return m_ignored.contains(nick.toLower());
+}
+
+QStringList RoomWidget::selectedTalkTos() const {
+  QStringList out;
+  for (QListWidgetItem *item : m_members->selectedItems()) {
+    QString n = item->text();
+    while (!n.isEmpty() && QStringLiteral("@%+&~*").contains(n.at(0)))
+      n = n.mid(1);
+    if (n.isEmpty() ||
+        n.compare(m_settings->nick, Qt::CaseInsensitive) == 0)
+      continue;
+    out.append(n);
+  }
+  return out;
+}
+
+QStringList RoomWidget::talkTosFor(const QString &nick) const {
+  return m_userTalkTos.value(nick.toLower());
+}
+
+void RoomWidget::onTalkTo(const QString &nick, const QStringList &targets) {
+  if (isIgnored(nick))
+    return;
+  m_userTalkTos.insert(nick.toLower(), targets);
+}
+
+void RoomWidget::onMessageEmotion(const QString &nick, const Emotion &emotion) {
+  if (isIgnored(nick))
+    return;
+  m_userEmotions.insert(nick.toLower(), emotion);
+}
+
+void RoomWidget::onHeresInfo(const QString &nick, const QString &info) {
+  if (isIgnored(nick))
+    return;
+  appendText(QStringLiteral("* %1's profile: %2").arg(nick, info));
+}
+
+void RoomWidget::onIdentity(const QString &nick, const QString &realName) {
+  if (isIgnored(nick))
+    return;
+  appendText(QStringLiteral("* %1's real identity: %2").arg(nick, realName));
+}
+
+bool RoomWidget::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == m_comicScroll->viewport() && event &&
+      event->type() == QEvent::Resize) {
+    m_pageView->reflowForWidth(
+        static_cast<QResizeEvent *>(event)->size().width());
+  }
+  return QWidget::eventFilter(watched, event);
+}

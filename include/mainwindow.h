@@ -46,6 +46,14 @@ private slots:
                     const QString &text);
   void routeAction(const QString &channel, const QString &nick,
                    const QString &text);
+  void routeThink(const QString &channel, const QString &nick,
+                  const QString &text);
+  void routeWhisper(const QString &recipient, const QString &nick,
+                    const QString &text);
+  void routeMessageEmotion(const QString &nick, const Emotion &emotion);
+  void routeTalkTo(const QString &nick, const QStringList &targets);
+  void routeHeresInfo(const QString &nick, const QString &info);
+  void routeIdentity(const QString &nick, const QString &realName);
   void routeUserJoined(const QString &channel, const QString &nick);
   void routeUserParted(const QString &channel, const QString &nick,
                        const QString &reason);
