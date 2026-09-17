@@ -11,236 +11,240 @@
 
 namespace {
 
-QFont comicFont(bool italic = false) {
-  // Original: IDS_DFLT_COMICSPNTSIZE = 12, IDS_COMICS_BOLD_DFLT = 700.
-  QFont f(QStringLiteral("Comic Sans MS"), 12, QFont::Bold);
-  if (!QFont(f).exactMatch())
-    f = QFont(QStringLiteral("DejaVu Sans"), 12, QFont::Bold);
-  f.setItalic(italic);
-  return f;
-}
+  QFont comicFont(bool italic = false) {
+    // Original: IDS_DFLT_COMICSPNTSIZE = 12, IDS_COMICS_BOLD_DFLT = 700.
+    QFont f(QStringLiteral("Comic Sans MS"), 12, QFont::Bold);
+    if (!QFont(f).exactMatch())
+      f = QFont(QStringLiteral("DejaVu Sans"), 12, QFont::Bold);
+    f.setItalic(italic);
+    return f;
+  }
 
-// The original's balloon geometry was expressed in units against a ~187-unit
-// line height: XBORDER=100, YBORDER=40, TOPBORDER=-20, waves 70/300, pen 28.
-// These helpers keep the same proportions relative to the current line height.
-int balloonPadX(const QFontMetrics &fm) {
-  return qMax(5, qRound(fm.height() * 0.53));
-}
-int balloonPadY(const QFontMetrics &fm) {
-  return qMax(2, qRound(fm.height() * 0.21));
-}
-int balloonTopPad(const QFontMetrics &fm) {
-  return qMax(1, qRound(fm.height() * 0.11));
-}
-qreal balloonWaveAmp(const QFontMetrics &fm) {
-  return qBound(qreal(2.5), fm.height() * 0.37, qreal(10.0));
-}
-qreal balloonWaveLen(const QFontMetrics &fm) {
-  return qBound(qreal(16.0), fm.height() * 1.6, qreal(44.0));
-}
-qreal balloonPenW(const QFontMetrics &fm) {
-  return qMax(qreal(2.0), fm.height() * 0.15);
-}
-// Extra margin the wavy, thick-stroked outline needs beyond the text centerline.
-int balloonOver(const QFontMetrics &fm) {
-  return int(std::ceil(balloonWaveAmp(fm) + balloonPenW(fm) / 2.0)) + 1;
-}
+  // The original's balloon geometry was expressed in units against a ~187-unit
+  // line height: XBORDER=100, YBORDER=40, TOPBORDER=-20, waves 70/300, pen 28.
+  // These helpers keep the same proportions relative to the current line
+  // height.
+  int balloonPadX(const QFontMetrics &fm) {
+    return qMax(5, qRound(fm.height() * 0.53));
+  }
+  int balloonPadY(const QFontMetrics &fm) {
+    return qMax(2, qRound(fm.height() * 0.21));
+  }
+  int balloonTopPad(const QFontMetrics &fm) {
+    return qMax(1, qRound(fm.height() * 0.11));
+  }
+  qreal balloonWaveAmp(const QFontMetrics &fm) {
+    return qBound(qreal(2.5), fm.height() * 0.37, qreal(10.0));
+  }
+  qreal balloonWaveLen(const QFontMetrics &fm) {
+    return qBound(qreal(16.0), fm.height() * 1.6, qreal(44.0));
+  }
+  qreal balloonPenW(const QFontMetrics &fm) {
+    return qMax(qreal(2.0), fm.height() * 0.15);
+  }
+  // Extra margin the wavy, thick-stroked outline needs beyond the text
+  // centerline.
+  int balloonOver(const QFontMetrics &fm) {
+    return int(std::ceil(balloonWaveAmp(fm) + balloonPenW(fm) / 2.0)) + 1;
+  }
 
-// Greedy word wrap using the same metric that drawing uses.
-QStringList wrapText(const QFontMetrics &fm, const QString &text, int maxWidth) {
-  QStringList out;
-  const QStringList paragraphs = text.split(QLatin1Char('\n'));
-  for (const QString &para : paragraphs) {
-    const QStringList words = para.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-    if (words.isEmpty()) {
-      out.append(QString());
-      continue;
-    }
-    QString cur;
-    for (QString w : words) {
-      while (maxWidth > 1 && fm.horizontalAdvance(w) > maxWidth) {
-        if (!cur.isEmpty()) {
+  // Greedy word wrap using the same metric that drawing uses.
+  QStringList wrapText(const QFontMetrics &fm, const QString &text,
+                       int maxWidth) {
+    QStringList out;
+    const QStringList paragraphs = text.split(QLatin1Char('\n'));
+    for (const QString &para : paragraphs) {
+      const QStringList words =
+          para.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+      if (words.isEmpty()) {
+        out.append(QString());
+        continue;
+      }
+      QString cur;
+      for (QString w : words) {
+        while (maxWidth > 1 && fm.horizontalAdvance(w) > maxWidth) {
+          if (!cur.isEmpty()) {
+            out.append(cur);
+            cur.clear();
+          }
+          int lo = 1, hi = w.size();
+          while (lo < hi) {
+            const int mid = (lo + hi + 1) / 2;
+            if (fm.horizontalAdvance(w.left(mid)) <= maxWidth)
+              lo = mid;
+            else
+              hi = mid - 1;
+          }
+          out.append(w.left(lo));
+          w = w.mid(lo);
+        }
+        const QString cand = cur.isEmpty() ? w : cur + QLatin1Char(' ') + w;
+        if (cur.isEmpty() || fm.horizontalAdvance(cand) <= maxWidth)
+          cur = cand;
+        else {
           out.append(cur);
-          cur.clear();
+          cur = w;
         }
-        int lo = 1, hi = w.size();
-        while (lo < hi) {
-          const int mid = (lo + hi + 1) / 2;
-          if (fm.horizontalAdvance(w.left(mid)) <= maxWidth)
-            lo = mid;
-          else
-            hi = mid - 1;
-        }
-        out.append(w.left(lo));
-        w = w.mid(lo);
       }
-      const QString cand = cur.isEmpty() ? w : cur + QLatin1Char(' ') + w;
-      if (cur.isEmpty() || fm.horizontalAdvance(cand) <= maxWidth)
-        cur = cand;
-      else {
+      if (!cur.isEmpty())
         out.append(cur);
-        cur = w;
-      }
     }
-    if (!cur.isEmpty())
-      out.append(cur);
+    if (out.isEmpty())
+      out.append(QString());
+    return out;
   }
-  if (out.isEmpty())
-    out.append(QString());
-  return out;
-}
 
-// Sprinkle points that make an edge undulate; the caller smooths them into the
-// wavy border. Mirrors AddWavies() in the original client, where the balloon
-// outline was a single beta-spline with the tail inserted into it.
-void addWavies(QVector<QPointF> &pts, const QPointF &a, const QPointF &b,
-               qreal amp, qreal interval) {
-  const qreal dist = std::hypot(b.x() - a.x(), b.y() - a.y());
-  if (dist < 1.0 || amp <= 0.0 || interval <= 1.0 || dist / interval < 2.0) {
+  // Sprinkle points that make an edge undulate; the caller smooths them into
+  // the wavy border. Mirrors AddWavies() in the original client, where the
+  // balloon outline was a single beta-spline with the tail inserted into it.
+  void addWavies(QVector<QPointF> &pts, const QPointF &a, const QPointF &b,
+                 qreal amp, qreal interval) {
+    const qreal dist = std::hypot(b.x() - a.x(), b.y() - a.y());
+    if (dist < 1.0 || amp <= 0.0 || interval <= 1.0 || dist / interval < 2.0) {
+      pts.append(b);
+      return;
+    }
+    const int iWaves = int(dist / interval);
+    const qreal waveLen = dist / iWaves;
+    const QPointF unit((b.x() - a.x()) / dist, (b.y() - a.y()) / dist);
+    const QPointF inc = unit * waveLen;
+    // The original's normal was (unit.y, -unit.x), but its y axis points up.
+    // Qt's points down, so flip the normal to keep the wavies bulging
+    // *outward*.
+    const QPointF extra(-unit.y() * amp, unit.x() * amp);
+    QPointF base = a;
+    for (int i = 0; i < iWaves - 1; ++i) {
+      base += inc;
+      pts.append((i & 1) ? base : base + extra);
+    }
     pts.append(b);
-    return;
   }
-  const int iWaves = int(dist / interval);
-  const qreal waveLen = dist / iWaves;
-  const QPointF unit((b.x() - a.x()) / dist, (b.y() - a.y()) / dist);
-  const QPointF inc = unit * waveLen;
-  // The original's normal was (unit.y, -unit.x), but its y axis points up. Qt's
-  // points down, so flip the normal to keep the wavies bulging *outward*.
-  const QPointF extra(-unit.y() * amp, unit.x() * amp);
-  QPointF base = a;
-  for (int i = 0; i < iWaves - 1; ++i) {
-    base += inc;
-    pts.append((i & 1) ? base : base + extra);
-  }
-  pts.append(b);
-}
 
-// Port of CBeta (tension = 5.0, bias = 1.0) from the original spline.cpp. The
-// old balloon outline is a *closed beta-spline*, which approximates its control
-// points: it rounds off the corners and the wave tips instead of running
-// through them the way Catmull-Rom does. Using the same matrix is what makes
-// the bubble read as the soft Comic Chat cloud.
-QPainterPath betaClosed(const QVector<QPointF> &cps) {
-  QPainterPath path;
-  const int n = cps.size();
-  if (n < 3)
+  // Port of CBeta (tension = 5.0, bias = 1.0) from the original spline.cpp. The
+  // old balloon outline is a *closed beta-spline*, which approximates its
+  // control points: it rounds off the corners and the wave tips instead of
+  // running through them the way Catmull-Rom does. Using the same matrix is
+  // what makes the bubble read as the soft Comic Chat cloud.
+  QPainterPath betaClosed(const QVector<QPointF> &cps) {
+    QPainterPath path;
+    const int n = cps.size();
+    if (n < 3)
+      return path;
+
+    const double tension = 5.0, bias = 1.0;
+    const double b2 = bias * bias, b3 = bias * b2;
+    const double d = 1.0 / (tension + 2.0 * b3 + 4.0 * (b2 + bias) + 2.0);
+    double m[4][4];
+    m[0][0] = -2.0 * b3;
+    m[0][1] = 2.0 * (tension + b3 + b2 + bias);
+    m[0][2] = -2.0 * (tension + b2 + bias + 1.0);
+    m[0][3] = 2.0;
+    m[1][0] = 6.0 * b3;
+    m[1][1] = -3.0 * (tension + 2.0 * (b3 + b2));
+    m[1][2] = 3.0 * (tension + 2.0 * b2);
+    m[1][3] = 0.0;
+    m[2][0] = -6.0 * b3;
+    m[2][1] = 6.0 * (b3 - bias);
+    m[2][2] = 6.0 * bias;
+    m[2][3] = 0.0;
+    m[3][0] = 2.0 * b3;
+    m[3][1] = tension + 4.0 * (b2 + bias);
+    m[3][2] = 2.0;
+    m[3][3] = 0.0;
+    for (int i = 0; i < 4; ++i)
+      for (int j = 0; j < 4; ++j)
+        m[i][j] *= d;
+
+    // GetKnot() for a closed spline (CSpline::GetKnot in the original).
+    auto knot = [&](int index) -> QPointF {
+      if (index == 0)
+        return cps[n - 1];
+      if (index == n + 1)
+        return cps[0];
+      if (index == n + 2)
+        return cps[1];
+      return cps[index - 1];
+    };
+    auto row = [&](int r, const QPointF &k0, const QPointF &k1,
+                   const QPointF &k2, const QPointF &k3) -> QPointF {
+      return QPointF(qRound(m[r][0] * k0.x() + m[r][1] * k1.x() +
+                            m[r][2] * k2.x() + m[r][3] * k3.x()),
+                     qRound(m[r][0] * k0.y() + m[r][1] * k1.y() +
+                            m[r][2] * k2.y() + m[r][3] * k3.y()));
+    };
+
+    const int nKnots = n + 3; // CSpline::KnotCount() when closed
+    QPointF k0 = knot(0), k1 = knot(1), k2 = knot(2), k3 = knot(3);
+    for (int i = 0;; ++i) {
+      const QPointF c0 = row(3, k0, k1, k2, k3);
+      const QPointF c1 = row(2, k0, k1, k2, k3);
+      const QPointF c2 = row(1, k0, k1, k2, k3);
+      const QPointF c3 = row(0, k0, k1, k2, k3);
+      const QPointF b1 = c0 + c1 / 3.0;
+      const QPointF b2 = b1 + (c1 + c2) / 3.0;
+      const QPointF b3 = c0 + c1 + c2 + c3;
+      if (i == 0)
+        path.moveTo(c0);
+      path.cubicTo(b1, b2, b3);
+      if (i + 4 == nKnots)
+        break;
+      k0 = k1;
+      k1 = k2;
+      k2 = k3;
+      k3 = knot(i + 4);
+    }
+    path.closeSubpath();
     return path;
-
-  const double tension = 5.0, bias = 1.0;
-  const double b2 = bias * bias, b3 = bias * b2;
-  const double d = 1.0 / (tension + 2.0 * b3 + 4.0 * (b2 + bias) + 2.0);
-  double m[4][4];
-  m[0][0] = -2.0 * b3;
-  m[0][1] = 2.0 * (tension + b3 + b2 + bias);
-  m[0][2] = -2.0 * (tension + b2 + bias + 1.0);
-  m[0][3] = 2.0;
-  m[1][0] = 6.0 * b3;
-  m[1][1] = -3.0 * (tension + 2.0 * (b3 + b2));
-  m[1][2] = 3.0 * (tension + 2.0 * b2);
-  m[1][3] = 0.0;
-  m[2][0] = -6.0 * b3;
-  m[2][1] = 6.0 * (b3 - bias);
-  m[2][2] = 6.0 * bias;
-  m[2][3] = 0.0;
-  m[3][0] = 2.0 * b3;
-  m[3][1] = tension + 4.0 * (b2 + bias);
-  m[3][2] = 2.0;
-  m[3][3] = 0.0;
-  for (int i = 0; i < 4; ++i)
-    for (int j = 0; j < 4; ++j)
-      m[i][j] *= d;
-
-  // GetKnot() for a closed spline (CSpline::GetKnot in the original).
-  auto knot = [&](int index) -> QPointF {
-    if (index == 0)
-      return cps[n - 1];
-    if (index == n + 1)
-      return cps[0];
-    if (index == n + 2)
-      return cps[1];
-    return cps[index - 1];
-  };
-  auto row = [&](int r, const QPointF &k0, const QPointF &k1, const QPointF &k2,
-                 const QPointF &k3) -> QPointF {
-    return QPointF(
-        qRound(m[r][0] * k0.x() + m[r][1] * k1.x() + m[r][2] * k2.x() +
-               m[r][3] * k3.x()),
-        qRound(m[r][0] * k0.y() + m[r][1] * k1.y() + m[r][2] * k2.y() +
-               m[r][3] * k3.y()));
-  };
-
-  const int nKnots = n + 3; // CSpline::KnotCount() when closed
-  QPointF k0 = knot(0), k1 = knot(1), k2 = knot(2), k3 = knot(3);
-  for (int i = 0;; ++i) {
-    const QPointF c0 = row(3, k0, k1, k2, k3);
-    const QPointF c1 = row(2, k0, k1, k2, k3);
-    const QPointF c2 = row(1, k0, k1, k2, k3);
-    const QPointF c3 = row(0, k0, k1, k2, k3);
-    const QPointF b1 = c0 + c1 / 3.0;
-    const QPointF b2 = b1 + (c1 + c2) / 3.0;
-    const QPointF b3 = c0 + c1 + c2 + c3;
-    if (i == 0)
-      path.moveTo(c0);
-    path.cubicTo(b1, b2, b3);
-    if (i + 4 == nKnots)
-      break;
-    k0 = k1;
-    k1 = k2;
-    k2 = k3;
-    k3 = knot(i + 4);
   }
-  path.closeSubpath();
-  return path;
-}
 
-// A run of consecutive text lines whose edge x stays (roughly) put.
-struct HRun {
-  int x;
-  int start;
-  int end;
-};
+  // A run of consecutive text lines whose edge x stays (roughly) put.
+  struct HRun {
+    int x;
+    int start;
+    int end;
+  };
 
-// Port of GetFilters(): merge line edges into runs so the outline steps only on
-// dramatic indents instead of jittering on every line.
-QVector<HRun> makeRuns(const QVector<int> &edge, bool left, int lineH) {
-  const int t1 = -qRound(lineH * 0.41);
-  const int t2 = qRound(lineH * 0.41);
-  QVector<HRun> runs;
-  runs.append({edge[0], 0, 0});
-  for (int i = 1; i < edge.size(); ++i) {
-    const int cur = runs.last().x;
-    const int delta = edge[i] - cur;
-    if (left) {
-      if (delta <= t1) {
-        runs.last().end = i - 1;
-        runs.append({edge[i], i, i});
-      } else if (delta <= 0) {
-        runs.last().x = edge[i];
-      } else if (delta >= t2) {
-        const int next = (i + 1 < edge.size()) ? edge[i + 1] : edge[i];
-        if (next - runs.last().x >= t2) {
+  // Port of GetFilters(): merge line edges into runs so the outline steps only
+  // on dramatic indents instead of jittering on every line.
+  QVector<HRun> makeRuns(const QVector<int> &edge, bool left, int lineH) {
+    const int t1 = -qRound(lineH * 0.41);
+    const int t2 = qRound(lineH * 0.41);
+    QVector<HRun> runs;
+    runs.append({edge[0], 0, 0});
+    for (int i = 1; i < edge.size(); ++i) {
+      const int cur = runs.last().x;
+      const int delta = edge[i] - cur;
+      if (left) {
+        if (delta <= t1) {
           runs.last().end = i - 1;
-          runs.append({qMin(edge[i], next), i, i});
+          runs.append({edge[i], i, i});
+        } else if (delta <= 0) {
+          runs.last().x = edge[i];
+        } else if (delta >= t2) {
+          const int next = (i + 1 < edge.size()) ? edge[i + 1] : edge[i];
+          if (next - runs.last().x >= t2) {
+            runs.last().end = i - 1;
+            runs.append({qMin(edge[i], next), i, i});
+          }
         }
-      }
-    } else {
-      if (delta >= -t1) {
-        runs.last().end = i - 1;
-        runs.append({edge[i], i, i});
-      } else if (delta >= 0) {
-        runs.last().x = edge[i];
-      } else if (delta <= -t2) {
-        const int next = (i + 1 < edge.size()) ? edge[i + 1] : edge[i];
-        if (next - runs.last().x <= -t2) {
+      } else {
+        if (delta >= -t1) {
           runs.last().end = i - 1;
-          runs.append({qMax(edge[i], next), i, i});
+          runs.append({edge[i], i, i});
+        } else if (delta >= 0) {
+          runs.last().x = edge[i];
+        } else if (delta <= -t2) {
+          const int next = (i + 1 < edge.size()) ? edge[i + 1] : edge[i];
+          if (next - runs.last().x <= -t2) {
+            runs.last().end = i - 1;
+            runs.append({qMax(edge[i], next), i, i});
+          }
         }
       }
     }
+    runs.last().end = edge.size() - 1;
+    return runs;
   }
-  runs.last().end = edge.size() - 1;
-  return runs;
-}
 
 } // namespace
 
@@ -295,7 +299,8 @@ QSize Balloon::measure(const QRect &freeRect) const {
   const int tw = qMin(qMax(16, fm.horizontalAdvance(up)), maxTextW);
   QStringList all = wrapText(fm, up, tw);
 
-  const int maxTextH = qMax(lineH, freeRect.height() - 2 * over - topPad - padY);
+  const int maxTextH =
+      qMax(lineH, freeRect.height() - 2 * over - topPad - padY);
   const int maxLines = qMax(1, maxTextH / lineH);
   if (all.size() > maxLines)
     all = all.mid(0, maxLines);
@@ -352,10 +357,10 @@ void Balloon::paint(QPainter *p) const {
 
   if (isAction) {
     // "Action" bubbles are plain rectangles (the original CBWoodringBox).
-    const QRectF r = QRectF(rect).adjusted(penW / 2, penW / 2, -penW / 2,
-                                           -penW / 2);
-    p->setPen(QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap,
-                   Qt::RoundJoin));
+    const QRectF r =
+        QRectF(rect).adjusted(penW / 2, penW / 2, -penW / 2, -penW / 2);
+    p->setPen(
+        QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p->setBrush(fill);
     p->drawRect(r);
   } else {
@@ -442,7 +447,8 @@ void Balloon::paint(QPainter *p) const {
           wavy(x, topY);
         else
           wavy(x, lineTop(lr[k].start));
-        const qreal by = (k == lr.size() - 1) ? bottomY : lineTop(lr[k + 1].start);
+        const qreal by =
+            (k == lr.size() - 1) ? bottomY : lineTop(lr[k + 1].start);
         wavy(x, by);
       }
 
@@ -461,9 +467,9 @@ void Balloon::paint(QPainter *p) const {
       wavy(pts.first().x(), pts.first().y());
 
       // A closed beta-spline supplies its own closing segment, so drop the
-      // repeated first point (but keep intentional duplicates such as the tail).
-      if (pts.size() > 1 &&
-          std::abs(pts.first().x() - pts.last().x()) < 0.01 &&
+      // repeated first point (but keep intentional duplicates such as the
+      // tail).
+      if (pts.size() > 1 && std::abs(pts.first().x() - pts.last().x()) < 0.01 &&
           std::abs(pts.first().y() - pts.last().y()) < 0.01)
         pts.removeLast();
 
@@ -474,13 +480,13 @@ void Balloon::paint(QPainter *p) const {
                        Qt::RoundJoin));
         p->setBrush(fill);
         p->drawPath(path);
-        p->setPen(QPen(Qt::black, penW, Qt::DashLine, Qt::RoundCap,
-                       Qt::RoundJoin));
+        p->setPen(
+            QPen(Qt::black, penW, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin));
         p->setBrush(Qt::NoBrush);
         p->drawPath(path);
       } else {
-        p->setPen(QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap,
-                       Qt::RoundJoin));
+        p->setPen(
+            QPen(Qt::black, penW, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p->setBrush(fill);
         p->drawPath(path);
       }

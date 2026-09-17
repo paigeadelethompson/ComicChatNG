@@ -100,10 +100,10 @@ private:
   QScrollArea *m_comicScroll = nullptr;
   QSplitter *m_mainSplit = nullptr;
 
-  QHash<QString, QString> m_userAvatars; // nick lower -> avatar file base
-  QHash<QString, Emotion> m_userEmotions; // nick lower -> annotation emotion
+  QHash<QString, QString> m_userAvatars;     // nick lower -> avatar file base
+  QHash<QString, Emotion> m_userEmotions;    // nick lower -> annotation emotion
   QHash<QString, QStringList> m_userTalkTos; // nick lower -> addressees
-  QSet<QString> m_ignored;                // nick lower -> message filter
+  QSet<QString> m_ignored;                   // nick lower -> message filter
   QString m_roomBackdrop;
   QString m_comicsTitle;
   bool m_titleDone = false;

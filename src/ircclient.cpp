@@ -125,14 +125,12 @@ void IrcClient::sendComicMessage(const QString &target, const QString &text,
                                  ComicMode mode, const QStringList &talkTos) {
   const QString header = buildAnnotations(mode, talkTos);
   if (mode == ComicMode::Action) {
-    writeLine(QStringLiteral("PRIVMSG %1 :%2")
-                  .arg(target, header) +
+    writeLine(QStringLiteral("PRIVMSG %1 :%2").arg(target, header) +
               QStringLiteral("\x01"
                              "ACTION %1\x01")
                   .arg(text));
   } else {
-    writeLine(QStringLiteral("PRIVMSG %1 :%2%3").arg(
-        target, header, text));
+    writeLine(QStringLiteral("PRIVMSG %1 :%2%3").arg(target, header, text));
   }
 }
 

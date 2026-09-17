@@ -497,18 +497,26 @@ void RoomWidget::updateTitlePanel() {
   if (m_comicsTitle.isEmpty()) {
     // The same random caption pool the original client shipped.
     static const char *const kTitles[] = {
-        "EVERYONE'S A COMIC",      "DOGGY DOGGY WAH WAH",
-        "YOU SHOULDA BEEN THERE",  "NO EXIT",
-        "WISH YOU WERE HERE",      "DEEPEST DARKEST DESIRES",
-        "JUST US CHUMPS",          "SIGHTED IN CYBERSPACE",
-        "THE GANG'S ALL HERE",     "BORN TO CHAT",
-        "NETWORKED NERDS",         "VIRTUALLY VACUOUS",
-        "IF I ONLY HAD A BRAIN",   "SLUMBER PARTY",
-        "MEET MARKET",             "MICROSOFT CHAT",
+        "EVERYONE'S A COMIC",
+        "DOGGY DOGGY WAH WAH",
+        "YOU SHOULDA BEEN THERE",
+        "NO EXIT",
+        "WISH YOU WERE HERE",
+        "DEEPEST DARKEST DESIRES",
+        "JUST US CHUMPS",
+        "SIGHTED IN CYBERSPACE",
+        "THE GANG'S ALL HERE",
+        "BORN TO CHAT",
+        "NETWORKED NERDS",
+        "VIRTUALLY VACUOUS",
+        "IF I ONLY HAD A BRAIN",
+        "SLUMBER PARTY",
+        "MEET MARKET",
+        "MICROSOFT CHAT",
     };
     const int n = int(sizeof(kTitles) / sizeof(kTitles[0]));
-    m_comicsTitle = QString::fromLatin1(
-        kTitles[QRandomGenerator::global()->bounded(n)]);
+    m_comicsTitle =
+        QString::fromLatin1(kTitles[QRandomGenerator::global()->bounded(n)]);
   }
 
   QVector<PageView::TitleStar> stars;
@@ -637,14 +645,15 @@ void RoomWidget::showMemberMenu(const QPoint &pos) {
               appendText(
                   tr("[profile of %1 not available on this server]").arg(nick));
           });
-  connect(menu.addAction(tr("Get &Identity")), &QAction::triggered, this,
-          [this, nick, online] {
-            if (online)
-              m_irc->requestIdentity(nick);
-            else
-              appendText(
-                  tr("[identity of %1 not available on this server]").arg(nick));
-          });
+  connect(
+      menu.addAction(tr("Get &Identity")), &QAction::triggered, this,
+      [this, nick, online] {
+        if (online)
+          m_irc->requestIdentity(nick);
+        else
+          appendText(
+              tr("[identity of %1 not available on this server]").arg(nick));
+      });
   QAction *whisper = menu.addAction(tr("&Whisper Box..."));
   whisper->setIcon(icons::saybar(2));
   connect(whisper, &QAction::triggered, this, [this, nick] {
@@ -865,8 +874,7 @@ QStringList RoomWidget::selectedTalkTos() const {
     QString n = item->text();
     while (!n.isEmpty() && QStringLiteral("@%+&~*").contains(n.at(0)))
       n = n.mid(1);
-    if (n.isEmpty() ||
-        n.compare(m_settings->nick, Qt::CaseInsensitive) == 0)
+    if (n.isEmpty() || n.compare(m_settings->nick, Qt::CaseInsensitive) == 0)
       continue;
     out.append(n);
   }

@@ -86,10 +86,9 @@ void PageView::renderTitle() {
     p.setPen(Qt::black);
     const QFontMetrics tfm(titleFont);
     const int titleW = W - 16;
-    const QRect wrapped =
-        tfm.boundingRect(QRect(0, 0, titleW, H),
-                         Qt::TextWordWrap | Qt::AlignHCenter | Qt::AlignTop,
-                         m_title);
+    const QRect wrapped = tfm.boundingRect(
+        QRect(0, 0, titleW, H),
+        Qt::TextWordWrap | Qt::AlignHCenter | Qt::AlignTop, m_title);
     const QRect titleRect(8, y, titleW, wrapped.height());
     p.drawText(titleRect, Qt::TextWordWrap | Qt::AlignHCenter | Qt::AlignTop,
                m_title);

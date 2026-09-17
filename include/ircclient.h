@@ -57,11 +57,10 @@ public:
   // right balloon kind. `talkTos` are the addresses of who we're talking to
   // (embedded as the trailing "T<nick>,<nick>" byte list).
   void sendComicMessage(const QString &target, const QString &text,
-                        ComicMode mode,
-                        const QStringList &talkTos = {});
+                        ComicMode mode, const QStringList &talkTos = {});
 
   // Comic Chat profile / avatar info exchange (plain IRC).
-  void requestProfile(const QString &nick);   // "# GetInfo"
+  void requestProfile(const QString &nick); // "# GetInfo"
   void sendProfile(const QString &nick, const QString &profile);
   void requestAvatarInfo(const QString &nick); // "# GetCharInfo"
   void appearAs(const QString &target, const QString &avatarName,

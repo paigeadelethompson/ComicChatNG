@@ -21,7 +21,7 @@ struct Balloon {
   QString speaker;
   QString text;
   QString displayText; // run text actually drawn (shortened if it won't fit)
-  QString rest;        // text that spilled out of the frame (continuation panel)
+  QString rest; // text that spilled out of the frame (continuation panel)
   QRect rect;
   QRect sprite; // speaker sprite box in panel coords
   QPoint faceP; // speaker's face anchor in panel coords
